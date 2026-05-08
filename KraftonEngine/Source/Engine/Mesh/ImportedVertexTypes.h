@@ -1,0 +1,48 @@
+﻿#pragma once
+
+#include "Core/EngineTypes.h"
+#include "Math/Matrix.h"
+
+struct FImportedBoneInfluence
+{
+	uint32 BoneIndex = 0;
+	float Weight = 0.0f;
+};
+
+struct FImportedSkeletalVertex
+{
+	FVector Position;
+	FVector Normal;
+	FVector2 UV;
+	FVector4 Tangent;
+
+	uint32 BoneIndices[4] = { 0, 0, 0, 0 };
+	float BoneWeights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+	// FBX Skin Weight는 ControlPoint 기준이라,
+	// Polygon Vertex 생성 후에도 원본 ControlPoint 추적용으로 필요함
+	int ControlPointIndex = -1;
+};
+
+struct FImportedBone
+{
+	FString Name;
+	int ParentIndex = -1;
+
+	// 이후 FBX Bone Node와 매핑할 때 사용
+	void* SourceNode = nullptr;
+
+	FMatrix BindGlobal;
+	FMatrix InverseBindGlobal;
+};
+
+struct FImportedSkeletalMesh
+{
+	TArray<FImportedSkeletalVertex> SkeletalVertices;
+	TArray<uint32> Indices;
+	TArray<FImportedBone> Bones;
+
+	bool HasNormals = false;
+	bool HasUVs = false;
+	bool HasSkinWeights = false;
+};

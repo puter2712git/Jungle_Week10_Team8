@@ -2803,6 +2803,8 @@
       <Filter>ThirdParty\sol2\include\sol\utility</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Mesh\FbxImporter.h" />
+    <ClInclude Include="Source\Engine\Mesh\ImportedVertexTypes.h" />
+    <ClInclude Include="Source\Engine\Mesh\SkeletalMesh.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="KraftonEngine.rc" />
