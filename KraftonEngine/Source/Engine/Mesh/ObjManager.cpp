@@ -1,6 +1,10 @@
 ﻿#include "Mesh/ObjManager.h"
 #include "Mesh/StaticMesh.h"
+#include "Mesh/SkeletalMesh.h"
 #include "Mesh/ObjImporter.h"
+#include "Mesh/FbxImporter.h"
+#include "Mesh/ImportedVertexTypes.h"
+#include "Mesh/SkeletalMeshBuilder.h"
 #include "Materials/Material.h"
 #include "Core/Log.h"
 #include "Serialization/WindowsArchive.h"
@@ -10,6 +14,7 @@
 #include <algorithm>
 
 TMap<FString, UStaticMesh*> FObjManager::StaticMeshCache;
+TMap<FString, USkeletalMesh*> FObjManager::SkeletalMeshCache;
 TArray<FMeshAssetListItem> FObjManager::AvailableMeshFiles;
 TArray<FMeshAssetListItem> FObjManager::AvailableObjFiles;
 
@@ -237,6 +242,39 @@ UStaticMesh* FObjManager::LoadObjStaticMesh(const FString& PathFileName, ID3D11D
 	return StaticMesh;
 }
 
+USkeletalMesh* FObjManager::LoadFbxSkeletalMesh(const FString& PathFileName, ID3D11Device* InDevice)
+{
+	auto It = SkeletalMeshCache.find(PathFileName);
+	if (It != SkeletalMeshCache.end())
+	{
+		return It->second;
+	}
+
+	FImportedSkeletalMesh ImportedMesh;
+	if (!FFbxImporter::Import(PathFileName, ImportedMesh))
+	{
+		UE_LOG("Failed to import FBX skeletal mesh: %s", PathFileName.c_str());
+		return nullptr;
+	}
+
+	FSkeletalMesh* NewMeshAsset = new FSkeletalMesh();
+	if (!FSkeletalMeshBuilder::BuildFromImported(ImportedMesh, *NewMeshAsset))
+	{
+		UE_LOG("Failed to build skeletal mesh asset: %s", PathFileName.c_str());
+		delete NewMeshAsset;
+		return nullptr;
+	}
+
+	NewMeshAsset->PathFileName = PathFileName;
+
+	USkeletalMesh* SkeletalMesh = UObjectManager::Get().CreateObject<USkeletalMesh>();
+	SkeletalMesh->SetSkeletalMeshAsset(NewMeshAsset);
+	SkeletalMesh->InitResources(InDevice);
+
+	SkeletalMeshCache[PathFileName] = SkeletalMesh;
+	return SkeletalMesh;
+}
+
 
 void FObjManager::ReleaseAllGPU()
 {
@@ -262,4 +300,18 @@ void FObjManager::ReleaseAllGPU()
 		}
 	}
 	StaticMeshCache.clear();
+
+	for (auto& [Key, Mesh] : SkeletalMeshCache)
+	{
+		if (Mesh)
+		{
+			FSkeletalMesh* Asset = Mesh->GetSkeletalMeshAsset();
+			if (Asset && Asset->RenderBuffer)
+			{
+				Asset->RenderBuffer->Release();
+				Asset->RenderBuffer.reset();
+			}
+		}
+	}
+	SkeletalMeshCache.clear();
 }

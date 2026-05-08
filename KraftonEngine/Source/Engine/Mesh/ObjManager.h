@@ -11,6 +11,7 @@ struct FStaticMesh;
 struct FStaticMaterial;
 struct FImportOptions;
 class UStaticMesh;
+class USkeletalMesh;
 
 struct FMeshAssetListItem
 {
@@ -22,6 +23,7 @@ class FObjManager
 {
 	// path → UStaticMesh* 캐시 (소유권은 UObjectManager)
 	static TMap<std::string, UStaticMesh*> StaticMeshCache;
+	static TMap<std::string, USkeletalMesh*> SkeletalMeshCache;
 	static TArray<FMeshAssetListItem> AvailableMeshFiles;
 	static TArray<FMeshAssetListItem> AvailableObjFiles;
 
@@ -29,6 +31,7 @@ public:
 	static std::string GetBinaryFilePath(const std::string& OriginalPath);
 	static UStaticMesh* LoadObjStaticMesh(const std::string& PathFileName, ID3D11Device* InDevice);
 	static UStaticMesh* LoadObjStaticMesh(const FString& PathFileName, const FImportOptions& Options, ID3D11Device* InDevice);
+	static USkeletalMesh* LoadFbxSkeletalMesh(const FString& PathFileName, ID3D11Device* InDevice);
 	static void ScanMeshAssets();
 	static const TArray<FMeshAssetListItem>& GetAvailableMeshFiles();
 	static void ScanObjSourceFiles();
