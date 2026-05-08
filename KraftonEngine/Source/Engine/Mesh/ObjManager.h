@@ -25,7 +25,6 @@ class FObjManager
 	static TArray<FMeshAssetListItem> AvailableMeshFiles;
 	static TArray<FMeshAssetListItem> AvailableObjFiles;
 
-
 public:
 	static std::string GetBinaryFilePath(const std::string& OriginalPath);
 	static UStaticMesh* LoadObjStaticMesh(const std::string& PathFileName, ID3D11Device* InDevice);

@@ -776,6 +776,9 @@
     <ClCompile Include="Source\Engine\Mesh\MeshSimplifier.cpp">
       <Filter>Source\Engine\Mesh</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Mesh\SkeletalMeshBuilder.cpp">
+      <Filter>Source\Engine\Mesh</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Mesh\ObjImporter.cpp">
       <Filter>Source\Engine\Mesh</Filter>
     </ClCompile>
@@ -2804,7 +2807,8 @@
     </ClInclude>
     <ClInclude Include="Source\Engine\Mesh\FbxImporter.h" />
     <ClInclude Include="Source\Engine\Mesh\ImportedVertexTypes.h" />
-    <ClInclude Include="Source\Engine\Mesh\SkeletalMesh.h" />
+    <ClInclude Include="Source\Engine\Mesh\SkeletalMeshAsset.h" />
+    <ClInclude Include="Source\Engine\Mesh\SkeletalMeshBuilder.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="KraftonEngine.rc" />
