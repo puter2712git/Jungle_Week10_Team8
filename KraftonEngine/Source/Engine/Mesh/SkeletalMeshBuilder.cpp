@@ -95,6 +95,21 @@ bool FSkeletalMeshBuilder::BuildFromImported(const FImportedSkeletalMesh& Import
 
 	OutMesh.Indices = Imported.Indices;
 	OutMesh.Bones = Imported.Bones;
+	OutMesh.MeshRanges.clear();
+	OutMesh.MeshRanges.reserve(Imported.MeshRanges.size());
+
+	for (const FImportedSkeletalMeshRange& ImportedRange : Imported.MeshRanges)
+	{
+		FSkeletalMeshRange Range;
+		Range.VertexStart = ImportedRange.VertexStart;
+		Range.VertexEnd = ImportedRange.VertexEnd;
+		Range.FirstIndex = ImportedRange.FirstIndex;
+		Range.IndexCount = ImportedRange.IndexCount;
+		Range.MeshBindGlobal = ImportedRange.MeshBindGlobal;
+		Range.InverseMeshBindGlobal = ImportedRange.InverseMeshBindGlobal;
+		Range.bHasMeshBind = ImportedRange.bHasMeshBind;
+		OutMesh.MeshRanges.push_back(Range);
+	}
 
 	for (FImportedBone& Bone : OutMesh.Bones)
 	{

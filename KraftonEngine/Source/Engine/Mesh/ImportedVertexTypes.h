@@ -36,11 +36,24 @@ struct FImportedBone
 	FMatrix InverseBindGlobal;
 };
 
+struct FImportedSkeletalMeshRange
+{
+	uint32 VertexStart = 0;
+	uint32 VertexEnd = 0;
+	uint32 FirstIndex = 0;
+	uint32 IndexCount = 0;
+
+	FMatrix MeshBindGlobal = FMatrix::Identity;
+	FMatrix InverseMeshBindGlobal = FMatrix::Identity;
+	bool bHasMeshBind = false;
+};
+
 struct FImportedSkeletalMesh
 {
 	TArray<FImportedSkeletalVertex> SkeletalVertices;
 	TArray<uint32> Indices;
 	TArray<FImportedBone> Bones;
+	TArray<FImportedSkeletalMeshRange> MeshRanges;
 
 	bool HasNormals = false;
 	bool HasUVs = false;

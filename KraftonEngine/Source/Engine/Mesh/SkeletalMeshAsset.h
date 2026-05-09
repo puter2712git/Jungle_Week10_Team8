@@ -17,6 +17,18 @@ struct FSkeletalVertex
 	float BoneWeights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
+struct FSkeletalMeshRange
+{
+	uint32 VertexStart = 0;
+	uint32 VertexEnd = 0;
+	uint32 FirstIndex = 0;
+	uint32 IndexCount = 0;
+
+	FMatrix MeshBindGlobal = FMatrix::Identity;
+	FMatrix InverseMeshBindGlobal = FMatrix::Identity;
+	bool bHasMeshBind = false;
+};
+
 struct FSkeletalMesh
 {
 	FString PathFileName;
@@ -24,6 +36,7 @@ struct FSkeletalMesh
 	TArray<uint32> Indices;
 
 	TArray<FImportedBone> Bones;
+	TArray<FSkeletalMeshRange> MeshRanges;
 	std::unique_ptr<FMeshBuffer> RenderBuffer;
 
 	FVector BoundsCenter = FVector(0.0f, 0.0f, 0.0f);

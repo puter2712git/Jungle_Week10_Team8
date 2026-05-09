@@ -11,6 +11,9 @@ struct FImportedMeshRange
 	FbxMesh* Mesh = nullptr;
 	uint32 VertexStart = 0;
 	uint32 VertexEnd = 0;
+	uint32 FirstIndex = 0;
+	uint32 IndexCount = 0;
+	uint32 ImportedRangeIndex = UINT32_MAX;
 };
 
 struct FFbxSkeletalVertexKey
@@ -64,7 +67,7 @@ static void ProcessSkeleton(FbxNode* Node, int32 ParentBoneIndex, FImportedSkele
 static void ProcessNode(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FImportedMeshRange>& OutMeshRanges);
 static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FImportedMeshRange>& OutMeshRanges);
 static void ProcessSkinWeights(FbxNode* Node, FImportedSkeletalMesh& OutMesh, const TArray<FImportedMeshRange>& MeshRanges);
-static void ProcessSkinWeightsForMesh(FbxMesh* Mesh, FImportedSkeletalMesh& OutMesh, uint32 VertexStart, uint32 VertexEnd);
+static void ProcessSkinWeightsForMesh(FbxMesh* Mesh, FImportedSkeletalMesh& OutMesh, uint32 VertexStart, uint32 VertexEnd, uint32 ImportedRangeIndex);
 static void NormalizeVertexWeights(FImportedSkeletalVertex& Vertex);
 static int32 FindBoneIndexByNode(FbxNode* BoneNode, const FImportedSkeletalMesh& Mesh);
 static void AddInfluenceToVertex(FImportedSkeletalVertex& Vertex, uint32 BoneIndex, float Weight);
@@ -102,8 +105,11 @@ static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FI
 
 	const int PolygonCount = Mesh->GetPolygonCount();
 	const uint32 VertexStart = static_cast<uint32>(OutMesh.SkeletalVertices.size());
+	const uint32 FirstIndex = static_cast<uint32>(OutMesh.Indices.size());
 	TMap<FFbxSkeletalVertexKey, uint32> VertexMap;
-	const FbxAMatrix MeshTransform = Node->EvaluateGlobalTransform() * GetGeometryTransform(Node);
+	// Keep imported vertices in mesh-local asset space. Node/global bind transforms
+	// belong to skinning, via cluster mesh/link bind matrices.
+	const FbxAMatrix MeshTransform = GetGeometryTransform(Node);
 	const FbxVector4 TransformedOrigin = MeshTransform.MultT(FbxVector4(0.0, 0.0, 0.0, 1.0));
 
 	for (int PolygonIndex = 0; PolygonIndex < PolygonCount; ++PolygonIndex)
@@ -134,7 +140,7 @@ static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FI
 				const FbxVector4 FbxPosition =
 					Mesh->GetControlPointAt(ControlPointIndex);
 
-				ImportedVertex.Position = ToVector3(MeshTransform.MultT(FbxPosition));
+				ImportedVertex.Position = ToVector3(FbxPosition);
 			}
 
 			// Normal
@@ -220,7 +226,17 @@ static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FI
 	Range.Mesh = Mesh;
 	Range.VertexStart = VertexStart;
 	Range.VertexEnd = static_cast<uint32>(OutMesh.SkeletalVertices.size());
+	Range.FirstIndex = FirstIndex;
+	Range.IndexCount = static_cast<uint32>(OutMesh.Indices.size()) - FirstIndex;
+	Range.ImportedRangeIndex = static_cast<uint32>(OutMesh.MeshRanges.size());
 	OutMeshRanges.push_back(Range);
+
+	FImportedSkeletalMeshRange ImportedRange;
+	ImportedRange.VertexStart = Range.VertexStart;
+	ImportedRange.VertexEnd = Range.VertexEnd;
+	ImportedRange.FirstIndex = Range.FirstIndex;
+	ImportedRange.IndexCount = Range.IndexCount;
+	OutMesh.MeshRanges.push_back(ImportedRange);
 }
 
 static void ProcessNode(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FImportedMeshRange>& OutMeshRanges)
@@ -261,6 +277,8 @@ bool FFbxImporter::Import(const FString& FilePath, FImportedSkeletalMesh& OutMes
 	}
 
 	Importer->Import(Scene);
+	//FbxSystemUnit CentimeterUnit(1.0);
+	//CentimeterUnit.cm.ConvertScene(Scene);
 	ConvertSceneAxis(Scene);
 	Importer->Destroy();
 
@@ -480,7 +498,7 @@ static void ProcessSkinWeights(FbxNode* Node, FImportedSkeletalMesh& OutMesh, co
 		{
 			if (Range.Mesh == Mesh)
 			{
-				ProcessSkinWeightsForMesh(Mesh, OutMesh, Range.VertexStart, Range.VertexEnd);
+				ProcessSkinWeightsForMesh(Mesh, OutMesh, Range.VertexStart, Range.VertexEnd, Range.ImportedRangeIndex);
 				break;
 			}
 		}
@@ -492,7 +510,7 @@ static void ProcessSkinWeights(FbxNode* Node, FImportedSkeletalMesh& OutMesh, co
 	}
 }
 
-static void ProcessSkinWeightsForMesh(FbxMesh* Mesh, FImportedSkeletalMesh& OutMesh, uint32 VertexStart, uint32 VertexEnd)
+static void ProcessSkinWeightsForMesh(FbxMesh* Mesh, FImportedSkeletalMesh& OutMesh, uint32 VertexStart, uint32 VertexEnd, uint32 ImportedRangeIndex)
 {
 	if (!Mesh || OutMesh.Bones.empty())
 	{
@@ -546,6 +564,17 @@ static void ProcessSkinWeightsForMesh(FbxMesh* Mesh, FImportedSkeletalMesh& OutM
 			}
 
 			// Bind Pose 보정
+			FbxAMatrix TransformMatrix;
+			Cluster->GetTransformMatrix(TransformMatrix);
+
+			if (ImportedRangeIndex < static_cast<uint32>(OutMesh.MeshRanges.size()))
+			{
+				FImportedSkeletalMeshRange& Range = OutMesh.MeshRanges[ImportedRangeIndex];
+				Range.MeshBindGlobal = ConvertFbxMatrix(TransformMatrix);
+				Range.InverseMeshBindGlobal = Range.MeshBindGlobal.GetInverse();
+				Range.bHasMeshBind = true;
+			}
+
 			FbxAMatrix TransformLinkMatrix;
 			Cluster->GetTransformLinkMatrix(TransformLinkMatrix);
 

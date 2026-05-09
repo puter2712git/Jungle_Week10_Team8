@@ -15,10 +15,13 @@ public:
 	~USkeletalMeshComponent() override = default;
 
 	FMeshBuffer* GetMeshBuffer() const override;
+	void UpdateWorldMatrix() const override;
 	void UpdateWorldAABB() const override;
 
 	USkeletalMesh* GetSkeletalMesh() const { return SkeletalMesh; }
 	void SetSkeletalMesh(USkeletalMesh* InMesh);
+	bool IsSkinningEnabled() const { return bEnableSkinning; }
+	void SetSkinningEnabled(bool bInEnableSkinning);
 
 	FPrimitiveSceneProxy* CreateSceneProxy() override;
 
@@ -39,5 +42,6 @@ private:
 	FVector CachedLocalCenter = { 0, 0, 0 };
 	FVector CachedLocalExtent = { 0.5f, 0.5f, 0.5f };
 	bool bHasValidBounds = false;
+	bool bEnableSkinning = false;
 };
 

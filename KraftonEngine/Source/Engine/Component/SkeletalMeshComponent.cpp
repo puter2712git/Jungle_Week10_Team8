@@ -46,6 +46,18 @@ void USkeletalMeshComponent::SetSkeletalMesh(USkeletalMesh* InMesh)
 	MarkWorldBoundsDirty();
 }
 
+void USkeletalMeshComponent::SetSkinningEnabled(bool bInEnableSkinning)
+{
+	if (bEnableSkinning == bInEnableSkinning)
+	{
+		return;
+	}
+
+	bEnableSkinning = bInEnableSkinning;
+	MarkTransformDirty();
+	MarkWorldBoundsDirty();
+}
+
 FPrimitiveSceneProxy* USkeletalMeshComponent::CreateSceneProxy()
 {
 	return new FSkeletalMeshSceneProxy(this);
@@ -67,6 +79,36 @@ void USkeletalMeshComponent::CacheLocalBounds()
 	CachedLocalCenter = Asset->BoundsCenter;
 	CachedLocalExtent = Asset->BoundsExtent;
 	bHasValidBounds = Asset->bBoundsValid;
+}
+
+void USkeletalMeshComponent::UpdateWorldMatrix() const
+{
+	const bool bWasTransformDirty = bTransformDirty;
+	UPrimitiveComponent::UpdateWorldMatrix();
+
+	if (!bWasTransformDirty || bEnableSkinning || !SkeletalMesh)
+	{
+		return;
+	}
+
+	const FSkeletalMesh* Asset = SkeletalMesh->GetSkeletalMeshAsset();
+	if (!Asset || Asset->MeshRanges.empty())
+	{
+		return;
+	}
+
+	const FSkeletalMeshRange& Range = Asset->MeshRanges[0];
+	if (!Range.bHasMeshBind)
+	{
+		return;
+	}
+
+	CachedWorldMatrix = Range.MeshBindGlobal * CachedWorldMatrix;
+	bInverseWorldDirty = true;
+
+	bWorldAABBDirty = true;
+	UpdateWorldAABB();
+	MarkProxyDirty(EDirtyFlag::Transform);
 }
 
 void USkeletalMeshComponent::UpdateWorldAABB() const
