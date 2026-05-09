@@ -110,6 +110,7 @@ static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FI
 	// Keep imported vertices in mesh-local asset space. Node/global bind transforms
 	// belong to skinning, via cluster mesh/link bind matrices.
 	const FbxAMatrix MeshTransform = GetGeometryTransform(Node);
+	const FbxAMatrix MeshSceneTransform = Node->EvaluateGlobalTransform() * MeshTransform;
 	const FbxVector4 TransformedOrigin = MeshTransform.MultT(FbxVector4(0.0, 0.0, 0.0, 1.0));
 
 	for (int PolygonIndex = 0; PolygonIndex < PolygonCount; ++PolygonIndex)
@@ -236,6 +237,8 @@ static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FI
 	ImportedRange.VertexEnd = Range.VertexEnd;
 	ImportedRange.FirstIndex = Range.FirstIndex;
 	ImportedRange.IndexCount = Range.IndexCount;
+	ImportedRange.MeshSceneGlobal = ConvertFbxMatrix(MeshSceneTransform);
+	ImportedRange.bHasMeshScene = true;
 	OutMesh.MeshRanges.push_back(ImportedRange);
 }
 

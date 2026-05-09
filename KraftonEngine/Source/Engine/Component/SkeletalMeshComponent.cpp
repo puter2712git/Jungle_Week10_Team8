@@ -81,38 +81,60 @@ void USkeletalMeshComponent::CacheLocalBounds()
 	bHasValidBounds = Asset->bBoundsValid;
 }
 
-void USkeletalMeshComponent::UpdateWorldMatrix() const
-{
-	const bool bWasTransformDirty = bTransformDirty;
-	UPrimitiveComponent::UpdateWorldMatrix();
-
-	if (!bWasTransformDirty || bEnableSkinning || !SkeletalMesh)
-	{
-		return;
-	}
-
-	const FSkeletalMesh* Asset = SkeletalMesh->GetSkeletalMeshAsset();
-	if (!Asset || Asset->MeshRanges.empty())
-	{
-		return;
-	}
-
-	const FSkeletalMeshRange& Range = Asset->MeshRanges[0];
-	if (!Range.bHasMeshBind)
-	{
-		return;
-	}
-
-	CachedWorldMatrix = Range.MeshBindGlobal * CachedWorldMatrix;
-	bInverseWorldDirty = true;
-
-	bWorldAABBDirty = true;
-	UpdateWorldAABB();
-	MarkProxyDirty(EDirtyFlag::Transform);
-}
-
 void USkeletalMeshComponent::UpdateWorldAABB() const
 {
+	if (!bEnableSkinning && SkeletalMesh)
+	{
+		const FSkeletalMesh* Asset = SkeletalMesh->GetSkeletalMeshAsset();
+		if (Asset && !Asset->Vertices.empty() && !Asset->MeshRanges.empty())
+		{
+			bool bHasPoint = false;
+			FVector WorldMin(0.0f, 0.0f, 0.0f);
+			FVector WorldMax(0.0f, 0.0f, 0.0f);
+
+			for (const FSkeletalMeshRange& Range : Asset->MeshRanges)
+			{
+				if (!Range.bHasMeshScene)
+				{
+					continue;
+				}
+
+				const uint32 VertexStart = (std::min)(Range.VertexStart, static_cast<uint32>(Asset->Vertices.size()));
+				const uint32 VertexEnd = (std::min)(Range.VertexEnd, static_cast<uint32>(Asset->Vertices.size()));
+				const FMatrix RangeWorld = Range.MeshSceneGlobal * CachedWorldMatrix;
+
+				for (uint32 VertexIndex = VertexStart; VertexIndex < VertexEnd; ++VertexIndex)
+				{
+					const FVector WorldPosition = RangeWorld.TransformPositionWithW(Asset->Vertices[VertexIndex].Position);
+					if (!bHasPoint)
+					{
+						WorldMin = WorldPosition;
+						WorldMax = WorldPosition;
+						bHasPoint = true;
+					}
+					else
+					{
+						WorldMin.X = (std::min)(WorldMin.X, WorldPosition.X);
+						WorldMin.Y = (std::min)(WorldMin.Y, WorldPosition.Y);
+						WorldMin.Z = (std::min)(WorldMin.Z, WorldPosition.Z);
+						WorldMax.X = (std::max)(WorldMax.X, WorldPosition.X);
+						WorldMax.Y = (std::max)(WorldMax.Y, WorldPosition.Y);
+						WorldMax.Z = (std::max)(WorldMax.Z, WorldPosition.Z);
+					}
+				}
+			}
+
+			if (bHasPoint)
+			{
+				WorldAABBMinLocation = WorldMin;
+				WorldAABBMaxLocation = WorldMax;
+				bWorldAABBDirty = false;
+				bHasValidWorldAABB = true;
+				return;
+			}
+		}
+	}
+
 	if (!bHasValidBounds)
 	{
 		UPrimitiveComponent::UpdateWorldAABB();

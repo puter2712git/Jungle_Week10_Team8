@@ -318,11 +318,14 @@ struct FConstantBufferBinding
 
 class UMaterial;
 
-// 섹션별 드로우 정보 — 머티리얼 포인터 + 인덱스 범위만 보관
+// 섹션별 드로우 정보 — 머티리얼 포인터 + 인덱스 범위 + 선택적 per-section object CB
 struct FMeshSectionDraw
 {
 	UMaterial* Material = nullptr;
 	uint32 FirstIndex = 0;
 	uint32 IndexCount = 0;
+
+	bool bOverridePerObjectConstants = false;
+	FPerObjectConstants PerObjectConstants = {};
 };
 

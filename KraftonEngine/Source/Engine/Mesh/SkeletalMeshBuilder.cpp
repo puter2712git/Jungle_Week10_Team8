@@ -105,6 +105,8 @@ bool FSkeletalMeshBuilder::BuildFromImported(const FImportedSkeletalMesh& Import
 		Range.VertexEnd = ImportedRange.VertexEnd;
 		Range.FirstIndex = ImportedRange.FirstIndex;
 		Range.IndexCount = ImportedRange.IndexCount;
+		Range.MeshSceneGlobal = ImportedRange.MeshSceneGlobal;
+		Range.bHasMeshScene = ImportedRange.bHasMeshScene;
 		Range.MeshBindGlobal = ImportedRange.MeshBindGlobal;
 		Range.InverseMeshBindGlobal = ImportedRange.InverseMeshBindGlobal;
 		Range.bHasMeshBind = ImportedRange.bHasMeshBind;

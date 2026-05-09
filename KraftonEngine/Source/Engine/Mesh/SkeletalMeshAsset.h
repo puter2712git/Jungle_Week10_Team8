@@ -24,6 +24,9 @@ struct FSkeletalMeshRange
 	uint32 FirstIndex = 0;
 	uint32 IndexCount = 0;
 
+	FMatrix MeshSceneGlobal = FMatrix::Identity;
+	bool bHasMeshScene = false;
+
 	FMatrix MeshBindGlobal = FMatrix::Identity;
 	FMatrix InverseMeshBindGlobal = FMatrix::Identity;
 	bool bHasMeshBind = false;

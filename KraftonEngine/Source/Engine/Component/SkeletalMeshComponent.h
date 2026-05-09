@@ -15,7 +15,6 @@ public:
 	~USkeletalMeshComponent() override = default;
 
 	FMeshBuffer* GetMeshBuffer() const override;
-	void UpdateWorldMatrix() const override;
 	void UpdateWorldAABB() const override;
 
 	USkeletalMesh* GetSkeletalMesh() const { return SkeletalMesh; }
