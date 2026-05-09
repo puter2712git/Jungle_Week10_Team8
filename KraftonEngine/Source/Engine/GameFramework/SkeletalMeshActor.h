@@ -13,7 +13,7 @@ public:
 	void BeginPlay() override;
 
 	// void InitDefaultComponents(const FString& UMeshFileName = "FBX\\SambaDancing\\Samba Dancing.fbx");
-	void InitDefaultComponents(const FString& UMeshFileName = "FBX\\lowpolyboy\\SimpleHuman.fbx");
+	void InitDefaultComponents(const FString& UMeshFileName = "FBX\\lowpolyboy\\SimpleMan.fbx");
 	// void InitDefaultComponents(const FString& UMeshFileName = "FBX\\Angelica\\Angelica.fbx");
 
 private:

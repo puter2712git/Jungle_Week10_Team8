@@ -143,16 +143,25 @@ bool FFbxImporter::Import(const FString& FilePath)
 	}
 	Importer->Destroy();
 
-	NormalizeCoordinateUnit(Scene);
+	// NormalizeCoordinateUnit(Scene);
 
-	ProcessNode(Scene->GetRootNode());
+	FbxNode* ImportRootNode = FindFirstMesh(Scene->GetRootNode());
+	if (!ImportRootNode)
+	{
+		ImportRootNode = Scene->GetRootNode();
+	}
+
+	FbxAMatrix ImportRootGlobal = ImportRootNode->EvaluateGlobalTransform();
+	ImportRootGlobalInverse = ImportRootGlobal.Inverse();
+
+	ProcessNode(Scene->GetRootNode(), 0);
 
 	SdkManager->Destroy();
 	return true;
 }
 
 // 재귀적 node 순회
-void FFbxImporter::ProcessNode(FbxNode* Node)
+void FFbxImporter::ProcessNode(FbxNode* Node, int32 cnt)
 {
 	if (!Node) return;
 	const char* NodeName = Node->GetName();
@@ -166,6 +175,7 @@ void FFbxImporter::ProcessNode(FbxNode* Node)
 
 			if (Mesh)
 			{
+				UE_LOG("cnt: %d, Node: %s, Mesh: %s", cnt, NodeName, Mesh->GetName());
 				PreLoadCluster(Mesh);
 				ProcessPolygon(Node);
 			}
@@ -174,7 +184,7 @@ void FFbxImporter::ProcessNode(FbxNode* Node)
 
 	for (int i = 0; i < Node->GetChildCount(); ++i)
 	{
-		ProcessNode(Node->GetChild(i));
+		ProcessNode(Node->GetChild(i), cnt+1);
 	}
 }
 
@@ -197,7 +207,6 @@ void FFbxImporter::ProcessMesh(FbxNode* Node)
 void FFbxImporter::ProcessPolygon(FbxNode* Node)
 {
 	FbxMesh* Mesh = Node->GetMesh();
-
 	// Temp UV Name Code
 	const char* uvSetName = nullptr;
 	FbxStringList uvSetNames;
@@ -209,6 +218,33 @@ void FFbxImporter::ProcessPolygon(FbxNode* Node)
 
 	// Node의 GlobalTransform
 	FbxAMatrix GlobalTransform = Node->EvaluateGlobalTransform();
+	FbxAMatrix LocalTransform = Node->EvaluateLocalTransform();
+
+	// Geometry Transform
+	FbxAMatrix Geometry;
+	Geometry.SetIdentity();
+	Geometry.SetT(Node->GetGeometricTranslation(FbxNode::eSourcePivot));
+	Geometry.SetR(Node->GetGeometricRotation(FbxNode::eSourcePivot));
+	Geometry.SetS(Node->GetGeometricScaling(FbxNode::eSourcePivot));
+
+	auto PrintMatrixT = [](const char* Label, const FbxAMatrix& M)
+		{
+			FbxVector4 T = M.GetT();
+			FbxVector4 R = M.GetR();
+			FbxVector4 S = M.GetS();
+
+			UE_LOG("%s T=(%.3f %.3f %.3f) R=(%.3f %.3f %.3f) S=(%.3f %.3f %.3f)",
+				Label,
+				T[0], T[1], T[2],
+				R[0], R[1], R[2],
+				S[0], S[1], S[2]);
+		};
+
+	UE_LOG("==== Mesh Node: %s / Mesh: %s ====", Node->GetName(), Mesh->GetName());
+	PrintMatrixT("Global", GlobalTransform);
+	PrintMatrixT("Geometry", Geometry);
+
+	FbxAMatrix FinalMatrix = Geometry * GlobalTransform;
 
 	// mesh polygon 순회
 	for (int32 pIdx = 0; pIdx < Mesh->GetPolygonCount(); ++pIdx)
@@ -221,10 +257,14 @@ void FFbxImporter::ProcessPolygon(FbxNode* Node)
 			FSkeletalMeshVertex v = {};
 
 			// FbxVector4 -> FVector3로 변환
-			FbxVector4 LocalPos = Mesh->GetControlPoints()[cpIndex]; 
-			FbxVector4 WorldPos = GlobalTransform.MultT(LocalPos);
-			v.Position = Convert(WorldPos);
-			// v.Position = Convert(Mesh->GetControlPoints()[cpIndex]);
+			// ControlPoint
+			FbxVector4 ControlPoint = Mesh->GetControlPoints()[cpIndex];
+
+			FbxVector4 ScenePos = GlobalTransform.MultT(Geometry.MultT(ControlPoint));
+			FbxVector4 UnifiedLocalPos = ImportRootGlobalInverse.MultT(ScenePos);
+
+			v.Position = Convert(UnifiedLocalPos);
+
 			// FBX -> Normal 변환
 			v.Normal = GetNormal(Mesh, pIdx, corner);
 			// FBX UV -> 프로젝트 기준 UV로 변환해주는 
@@ -445,12 +485,33 @@ void FFbxImporter::NormalizeCoordinateUnit(FbxScene* Scene)
 	}
 
 	// Coordinate 적용
-	FbxAxisSystem TargetAxisSystem(FbxAxisSystem::eXAxis, FbxAxisSystem::eParityOdd, FbxAxisSystem::eLeftHanded);
+	FbxAxisSystem TargetAxisSystem(FbxAxisSystem::eZAxis, FbxAxisSystem::eParityOdd, FbxAxisSystem::eLeftHanded);
 	FbxAxisSystem SceneAxisSystem = Scene->GetGlobalSettings().GetAxisSystem();
 	if (SceneAxisSystem != TargetAxisSystem)
 	{
 		TargetAxisSystem.ConvertScene(Scene);
 	}
+}
+
+FbxNode* FFbxImporter::FindFirstMesh(FbxNode* Node)
+{
+	if (!Node) return nullptr;
+
+	FbxNodeAttribute* Attr = Node->GetNodeAttribute();
+	if (Attr && Attr->GetAttributeType() == FbxNodeAttribute::eMesh)
+	{
+		return Node;
+	}
+
+	for (int i = 0; i < Node->GetChildCount(); ++i)
+	{
+		if (FbxNode* Found = FindFirstMesh(Node->GetChild(i)))
+		{
+			return Found;
+		}
+	}
+
+	return nullptr;
 }
 
 // 임시로 화면에 띄우기 위해 FBX 파일을 SkeletalMesh로 변환

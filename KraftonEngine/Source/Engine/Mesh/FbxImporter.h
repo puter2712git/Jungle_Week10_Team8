@@ -37,7 +37,7 @@ struct EngineBone
 	// TODO: 나중에 Skinning할 때 필요
 	/*FMatrix LocalBindTransform;
 	FMatrix GlobalBindTransform;
-	FMatrix InverseTransform;*/
+	FMatrix InverseBindTransform;*/
 };
 
 struct BoneInfluence
@@ -56,7 +56,7 @@ public:
 
 	UStaticMesh* ImportAsStaticMesh(const FString& FilePath, ID3D11Device* Device);
 
-	void ProcessNode(FbxNode* Node);
+	void ProcessNode(FbxNode* Node, int32 cnt);
 	void ProcessMesh(FbxNode* Node);
 	void ProcessPolygon(FbxNode* Node);
 
@@ -69,8 +69,9 @@ private:
 
 	void			ComputeTangents();
 	void			NormalizeCoordinateUnit(FbxScene* Scene);
+	FbxNode*		FindFirstMesh(FbxNode* Node);
 
-
+	FbxAMatrix					ImportRootGlobalInverse; // 기준으로 잡을 root
 	UStaticMesh* BuildStaticMeshFromImportedData(const FString& FilePath, ID3D11Device* Device);
 
 	TArray<TArray<BoneInfluence>> InfluencesPerControlPoint;	// ControlPoint에 영향을 주는 Cluster 모음
@@ -82,4 +83,5 @@ private:
 	// 최종값
 	TArray<FSkeletalMeshVertex> vertices;						// Vertex 모음
 	TArray<int32> indices;									// SkeletalMesh indices
+	bool bIsRootFilled = false;
 };
