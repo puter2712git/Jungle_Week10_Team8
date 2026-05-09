@@ -293,13 +293,69 @@ void USkeletalMeshComponent::UpdateCPUSkinning()
 			}
 		};
 
+	auto TransformVertexRange = [this, Asset](uint32 VertexStart, uint32 VertexEnd, const FMatrix& TransformMatrix)
+		{
+			const uint32 SafeVertexEnd = (std::min)(VertexEnd, static_cast<uint32>(Asset->Vertices.size()));
+			const uint32 SafeVertexStart = (std::min)(VertexStart, SafeVertexEnd);
+
+			for (uint32 VertexIndex = SafeVertexStart; VertexIndex < SafeVertexEnd; ++VertexIndex)
+			{
+				const FSkeletalVertex& Src = Asset->Vertices[VertexIndex];
+				FVector Normal = TransformMatrix.TransformVector(Src.Normal);
+				FVector Tangent = TransformMatrix.TransformVector(FVector(Src.Tangent.X, Src.Tangent.Y, Src.Tangent.Z));
+
+				if (Normal.Length() > 1e-6f)
+				{
+					Normal.Normalize();
+				}
+				else
+				{
+					Normal = Src.Normal;
+				}
+
+				if (Tangent.Length() > 1e-6f)
+				{
+					Tangent.Normalize();
+				}
+				else
+				{
+					Tangent = FVector(Src.Tangent.X, Src.Tangent.Y, Src.Tangent.Z);
+				}
+
+				FVertexPNCTT& Dst = SkinnedVertices[VertexIndex];
+				Dst.Position = TransformMatrix.TransformPositionWithW(Src.Position);
+				Dst.Normal = Normal;
+				Dst.Color = FVector4(1.0f, 1.0f, 1.0f, 1.0f);
+				Dst.UV = Src.UV;
+				Dst.Tangent = FVector4(Tangent.X, Tangent.Y, Tangent.Z, Src.Tangent.W);
+			}
+		};
+
 	if (!Asset->MeshRanges.empty())
 	{
 		for (const FSkeletalMeshRange& Range : Asset->MeshRanges)
 		{
 			const FMatrix& MeshBindGlobal = Range.bHasMeshBind ? Range.MeshBindGlobal : FMatrix::Identity;
 			const FMatrix& MeshCurrentGlobal = Range.bHasMeshScene ? Range.MeshSceneGlobal : MeshBindGlobal;
-			SkinVertexRange(Range.VertexStart, Range.VertexEnd, MeshBindGlobal, MeshCurrentGlobal);
+
+			if (Range.BindingType == ESkeletalMeshRangeBinding::Skinned)
+			{
+				SkinVertexRange(Range.VertexStart, Range.VertexEnd, MeshBindGlobal, MeshCurrentGlobal);
+			}
+			else if (Range.BindingType == ESkeletalMeshRangeBinding::RigidBone
+				&& Range.RigidBoneIndex >= 0
+				&& Range.RigidBoneIndex < static_cast<int32>(Bones.size()))
+			{
+				const FMatrix RigidTransform =
+					MeshCurrentGlobal *
+					Bones[Range.RigidBoneIndex].InverseBindGlobal *
+					BoneCurrentGlobalMatrices[Range.RigidBoneIndex];
+				TransformVertexRange(Range.VertexStart, Range.VertexEnd, RigidTransform);
+			}
+			else
+			{
+				TransformVertexRange(Range.VertexStart, Range.VertexEnd, MeshCurrentGlobal);
+			}
 		}
 	}
 	else

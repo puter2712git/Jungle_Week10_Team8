@@ -110,6 +110,8 @@ bool FSkeletalMeshBuilder::BuildFromImported(const FImportedSkeletalMesh& Import
 		Range.MeshBindGlobal = ImportedRange.MeshBindGlobal;
 		Range.InverseMeshBindGlobal = ImportedRange.InverseMeshBindGlobal;
 		Range.bHasMeshBind = ImportedRange.bHasMeshBind;
+		Range.BindingType = ImportedRange.BindingType;
+		Range.RigidBoneIndex = ImportedRange.RigidBoneIndex;
 		OutMesh.MeshRanges.push_back(Range);
 	}
 

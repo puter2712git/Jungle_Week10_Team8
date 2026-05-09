@@ -70,6 +70,7 @@ static void ProcessSkinWeights(FbxNode* Node, FImportedSkeletalMesh& OutMesh, co
 static void ProcessSkinWeightsForMesh(FbxMesh* Mesh, FImportedSkeletalMesh& OutMesh, uint32 VertexStart, uint32 VertexEnd, uint32 ImportedRangeIndex);
 static void NormalizeVertexWeights(FImportedSkeletalVertex& Vertex);
 static int32 FindBoneIndexByNode(FbxNode* BoneNode, const FImportedSkeletalMesh& Mesh);
+static int32 FindRigidBoneIndexForMesh(FbxNode* MeshNode, const FImportedSkeletalMesh& Mesh, const FMatrix& MeshSceneGlobal);
 static void AddInfluenceToVertex(FImportedSkeletalVertex& Vertex, uint32 BoneIndex, float Weight);
 static void GenerateTangents(FImportedSkeletalMesh& OutMesh);
 
@@ -239,6 +240,21 @@ static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FI
 	ImportedRange.IndexCount = Range.IndexCount;
 	ImportedRange.MeshSceneGlobal = ConvertFbxMatrix(MeshSceneTransform);
 	ImportedRange.bHasMeshScene = true;
+
+	if (Mesh->GetDeformerCount(FbxDeformer::eSkin) > 0)
+	{
+		ImportedRange.BindingType = ESkeletalMeshRangeBinding::Skinned;
+	}
+	else
+	{
+		const int32 RigidBoneIndex = FindRigidBoneIndexForMesh(Node, OutMesh, ImportedRange.MeshSceneGlobal);
+		if (RigidBoneIndex >= 0)
+		{
+			ImportedRange.BindingType = ESkeletalMeshRangeBinding::RigidBone;
+			ImportedRange.RigidBoneIndex = RigidBoneIndex;
+		}
+	}
+
 	OutMesh.MeshRanges.push_back(ImportedRange);
 }
 
@@ -280,8 +296,6 @@ bool FFbxImporter::Import(const FString& FilePath, FImportedSkeletalMesh& OutMes
 	}
 
 	Importer->Import(Scene);
-	//FbxSystemUnit CentimeterUnit(1.0);
-	//CentimeterUnit.cm.ConvertScene(Scene);
 	ConvertSceneAxis(Scene);
 	Importer->Destroy();
 
@@ -455,6 +469,40 @@ static int32 FindBoneIndexByNode(FbxNode* BoneNode, const FImportedSkeletalMesh&
 	return -1;
 }
 
+static int32 FindRigidBoneIndexForMesh(FbxNode* MeshNode, const FImportedSkeletalMesh& Mesh, const FMatrix& MeshSceneGlobal)
+{
+	if (!MeshNode || Mesh.Bones.empty())
+	{
+		return -1;
+	}
+
+	for (FbxNode* Parent = MeshNode->GetParent(); Parent; Parent = Parent->GetParent())
+	{
+		const int32 BoneIndex = FindBoneIndexByNode(Parent, Mesh);
+		if (BoneIndex >= 0)
+		{
+			return BoneIndex;
+		}
+	}
+
+	const FVector MeshLocation = MeshSceneGlobal.GetLocation();
+	float BestDistanceSquared = 3.402823466e+38F;
+	int32 BestBoneIndex = -1;
+
+	for (int32 BoneIndex = 0; BoneIndex < static_cast<int32>(Mesh.Bones.size()); ++BoneIndex)
+	{
+		const FVector BoneLocation = Mesh.Bones[BoneIndex].BindGlobal.GetLocation();
+		const float DistanceSquared = FVector::DistSquared(MeshLocation, BoneLocation);
+		if (DistanceSquared < BestDistanceSquared)
+		{
+			BestDistanceSquared = DistanceSquared;
+			BestBoneIndex = BoneIndex;
+		}
+	}
+
+	return BestBoneIndex;
+}
+
 static void AddInfluenceToVertex(FImportedSkeletalVertex& Vertex, uint32 BoneIndex, float Weight)
 {
 	if (Weight <= 0.0f)
@@ -620,6 +668,12 @@ static void ProcessSkinWeightsForMesh(FbxMesh* Mesh, FImportedSkeletalMesh& OutM
 	if (!bAppliedAnyWeight)
 	{
 		return;
+	}
+
+	if (ImportedRangeIndex < static_cast<uint32>(OutMesh.MeshRanges.size()))
+	{
+		OutMesh.MeshRanges[ImportedRangeIndex].BindingType = ESkeletalMeshRangeBinding::Skinned;
+		OutMesh.MeshRanges[ImportedRangeIndex].RigidBoneIndex = -1;
 	}
 
 	for (uint32 VertexIndex = VertexStart; VertexIndex < VertexEnd; ++VertexIndex)

@@ -30,6 +30,9 @@ struct FSkeletalMeshRange
 	FMatrix MeshBindGlobal = FMatrix::Identity;
 	FMatrix InverseMeshBindGlobal = FMatrix::Identity;
 	bool bHasMeshBind = false;
+
+	ESkeletalMeshRangeBinding BindingType = ESkeletalMeshRangeBinding::Static;
+	int32 RigidBoneIndex = -1;
 };
 
 struct FSkeletalMesh

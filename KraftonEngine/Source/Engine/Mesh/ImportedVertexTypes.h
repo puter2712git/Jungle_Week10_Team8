@@ -36,6 +36,13 @@ struct FImportedBone
 	FMatrix InverseBindGlobal;
 };
 
+enum class ESkeletalMeshRangeBinding
+{
+	Skinned,
+	RigidBone,
+	Static
+};
+
 struct FImportedSkeletalMeshRange
 {
 	uint32 VertexStart = 0;
@@ -49,6 +56,9 @@ struct FImportedSkeletalMeshRange
 	FMatrix MeshBindGlobal = FMatrix::Identity;
 	FMatrix InverseMeshBindGlobal = FMatrix::Identity;
 	bool bHasMeshBind = false;
+
+	ESkeletalMeshRangeBinding BindingType = ESkeletalMeshRangeBinding::Static;
+	int32 RigidBoneIndex = -1;
 };
 
 struct FImportedSkeletalMesh
