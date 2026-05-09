@@ -57,6 +57,9 @@ struct hash<FFbxSkeletalVertexKey>
 }
 
 static FMatrix ConvertFbxMatrix(const FbxAMatrix& M);
+static FbxAMatrix GetGeometryTransform(FbxNode* Node);
+static FVector ToVector3(const FbxVector4& V);
+static void ConvertSceneAxis(FbxScene* Scene);
 static void ProcessSkeleton(FbxNode* Node, int32 ParentBoneIndex, FImportedSkeletalMesh& OutMesh);
 static void ProcessNode(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FImportedMeshRange>& OutMeshRanges);
 static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FImportedMeshRange>& OutMeshRanges);
@@ -100,6 +103,8 @@ static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FI
 	const int PolygonCount = Mesh->GetPolygonCount();
 	const uint32 VertexStart = static_cast<uint32>(OutMesh.SkeletalVertices.size());
 	TMap<FFbxSkeletalVertexKey, uint32> VertexMap;
+	const FbxAMatrix MeshTransform = Node->EvaluateGlobalTransform() * GetGeometryTransform(Node);
+	const FbxVector4 TransformedOrigin = MeshTransform.MultT(FbxVector4(0.0, 0.0, 0.0, 1.0));
 
 	for (int PolygonIndex = 0; PolygonIndex < PolygonCount; ++PolygonIndex)
 	{
@@ -129,11 +134,7 @@ static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FI
 				const FbxVector4 FbxPosition =
 					Mesh->GetControlPointAt(ControlPointIndex);
 
-				ImportedVertex.Position = FVector(
-					static_cast<float>(FbxPosition[0]),
-					static_cast<float>(FbxPosition[1]),
-					static_cast<float>(FbxPosition[2])
-				);
+				ImportedVertex.Position = ToVector3(MeshTransform.MultT(FbxPosition));
 			}
 
 			// Normal
@@ -151,11 +152,9 @@ static void ProcessMesh(FbxNode* Node, FImportedSkeletalMesh& OutMesh, TArray<FI
 					FbxNormal.Normalize();
 				}
 
-				ImportedVertex.Normal = FVector(
-					static_cast<float>(FbxNormal[0]),
-					static_cast<float>(FbxNormal[1]),
-					static_cast<float>(FbxNormal[2])
-				);
+				FbxVector4 TransformedNormal = MeshTransform.MultT(FbxNormal) - TransformedOrigin;
+				TransformedNormal.Normalize();
+				ImportedVertex.Normal = ToVector3(TransformedNormal);
 			}
 
 			// UV
@@ -262,6 +261,7 @@ bool FFbxImporter::Import(const FString& FilePath, FImportedSkeletalMesh& OutMes
 	}
 
 	Importer->Import(Scene);
+	ConvertSceneAxis(Scene);
 	Importer->Destroy();
 
 	FbxGeometryConverter GeometryConverter(SdkManager);
@@ -289,6 +289,21 @@ bool FFbxImporter::Import(const FString& FilePath, FImportedSkeletalMesh& OutMes
 	return true;
 }
 
+static void ConvertSceneAxis(FbxScene* Scene)
+{
+	if (!Scene)
+	{
+		return;
+	}
+
+	FbxAxisSystem EngineAxisSystem(
+		FbxAxisSystem::eZAxis,
+		FbxAxisSystem::eParityEven,
+		FbxAxisSystem::eRightHanded
+	);
+	EngineAxisSystem.ConvertScene(Scene);
+}
+
 
 static FMatrix ConvertFbxMatrix(const FbxAMatrix& M)
 {
@@ -303,6 +318,29 @@ static FMatrix ConvertFbxMatrix(const FbxAMatrix& M)
 	}
 
 	return Result;
+}
+
+static FbxAMatrix GetGeometryTransform(FbxNode* Node)
+{
+	FbxAMatrix GeometryTransform;
+	if (!Node)
+	{
+		return GeometryTransform;
+	}
+
+	GeometryTransform.SetT(Node->GetGeometricTranslation(FbxNode::eSourcePivot));
+	GeometryTransform.SetR(Node->GetGeometricRotation(FbxNode::eSourcePivot));
+	GeometryTransform.SetS(Node->GetGeometricScaling(FbxNode::eSourcePivot));
+	return GeometryTransform;
+}
+
+static FVector ToVector3(const FbxVector4& V)
+{
+	return FVector(
+		static_cast<float>(V[0]),
+		static_cast<float>(V[1]),
+		static_cast<float>(V[2])
+	);
 }
 
 static void ProcessSkeleton(FbxNode* Node, int32 ParentBoneIndex, FImportedSkeletalMesh& OutMesh)
