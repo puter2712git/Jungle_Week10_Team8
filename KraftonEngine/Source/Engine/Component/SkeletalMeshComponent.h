@@ -12,7 +12,7 @@ class USkeletalMeshComponent : public UMeshComponent
 public:
 	DECLARE_CLASS(USkeletalMeshComponent, UMeshComponent);
 
-	USkeletalMeshComponent() = default;
+	USkeletalMeshComponent();
 	~USkeletalMeshComponent() override = default;
 
 	FMeshBuffer* GetMeshBuffer() const override;
@@ -49,12 +49,15 @@ private:
 	TArray<FVertexPNCTT> SkinnedVertices;
 	TArray<FMatrix> BoneCurrentGlobalMatrices;
 	TArray<FMatrix> SkinMatrices;
+	float DebugSkinningTime = 0.0f;
+	int32 DebugAnimatedBoneIndex = 1;
+	bool bEnableDebugBoneAnimation = true;
 
 	std::unique_ptr<FMeshBuffer> SkinnedRenderBuffer;
 
 	FVector CachedLocalCenter = { 0, 0, 0 };
 	FVector CachedLocalExtent = { 0.5f, 0.5f, 0.5f };
 	bool bHasValidBounds = false;
-	bool bEnableSkinning = false;
+	bool bEnableSkinning = true;
 };
 

@@ -18,6 +18,9 @@ public:
 	void Create(ID3D11Device* InDevice, const void* InData, uint32 InVertexCount, uint32 InByteWidth, uint32 InStride);
 	void Release();
 
+	void CreateDynamic(ID3D11Device* InDevice, const void* InData, uint32 InVertexCount, uint32 InStride);
+	bool UpdateDynamic(ID3D11DeviceContext* InDeviceContext, const void* InData, uint32 InVertexCount);
+
 	uint32 GetVertexCount() const { return VertexCount; }
 	uint32 GetStride() const { return Stride; }
 
@@ -90,6 +93,11 @@ public:
 	template<typename VertexType>
 	void Create(ID3D11Device* InDevice, const TMeshData<VertexType>& InMeshData);
 	void Release();
+
+	template<typename VertexType>
+	void CreateDynamicVertexBuffer(ID3D11Device* InDevice, const TMeshData<VertexType>& InMeshData);
+	template<typename VertexType>
+	void UpdateDynamicVertices(ID3D11DeviceContext* InDeviceContext, const TArray<VertexType>& Vertices);
 
 	FVertexBuffer& GetVertexBuffer() { return VertexBuffer; }
 	FIndexBuffer& GetIndexBuffer() { return IndexBuffer; }
@@ -185,3 +193,37 @@ void FMeshBuffer::Create(ID3D11Device* InDevice, const TMeshData<VertexType>& In
 		IndexBuffer.Create(InDevice, InMeshData.Indices.data(), IndexCount, IndexByteWidth);
 	}
 }
+
+template<typename VertexType>
+inline void FMeshBuffer::CreateDynamicVertexBuffer(ID3D11Device* InDevice, const TMeshData<VertexType>& InMeshData)
+{
+	Release();
+	if (InMeshData.Vertices.empty())
+	{
+		return;
+	}
+
+	uint32 VertexCount = static_cast<uint32>(InMeshData.Vertices.size());
+
+	VertexBuffer.CreateDynamic(InDevice, InMeshData.Vertices.data(), VertexCount, sizeof(VertexType));
+
+	if (!InMeshData.Indices.empty())
+	{
+		uint32 IndexCount = static_cast<uint32>(InMeshData.Indices.size());
+		uint32 IndexByteWidth = IndexCount * sizeof(uint32);
+
+		IndexBuffer.Create(InDevice, InMeshData.Indices.data(), IndexCount, IndexByteWidth);
+	}
+}
+
+template<typename VertexType>
+inline void FMeshBuffer::UpdateDynamicVertices(ID3D11DeviceContext* InDeviceContext, const TArray<VertexType>& Vertices)
+{
+	if (Vertices.empty())
+	{
+		return;
+	}
+
+	VertexBuffer.UpdateDynamic(InDeviceContext, Vertices.data(), static_cast<uint32>(Vertices.size()));
+}
+

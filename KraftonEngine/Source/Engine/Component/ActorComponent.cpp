@@ -63,6 +63,7 @@ void UActorComponent::Serialize(FArchive& Ar)
 	Ar << bIsActive;
 	Ar << bAutoActivate;
 	Ar << bHiddenInComponentTree;
+	Ar << bTickInEditor;
 }
 
 void UActorComponent::SetEditorOnly(bool bInEditorOnly)
@@ -90,6 +91,7 @@ void UActorComponent::GetEditableProperties(TArray<FPropertyDescriptor>& OutProp
 	//OutProps.push_back({ "Auto Activate", EPropertyType::Bool, "Component", &bAutoActivate });
 	//OutProps.push_back({ "Can Ever Tick", EPropertyType::Bool, "Component", &bCanEverTick });
 	OutProps.push_back({ "bTickEnable", EPropertyType::Bool, "Component", &bTickEnable });
+	OutProps.push_back({ "bTickInEditor", EPropertyType::Bool, "Component", &bTickInEditor });
 	OutProps.push_back({ "bEditorOnly", EPropertyType::Bool, "Component", &bEditorOnly });
 }
 

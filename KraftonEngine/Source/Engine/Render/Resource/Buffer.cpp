@@ -1,6 +1,8 @@
 ﻿#include "Buffer.h"
 #include "Engine/Profiling/MemoryStats.h"
 
+#include <cstring>
+
 void FMeshBuffer::Release()
 {
 	VertexBuffer.Release();
@@ -61,6 +63,56 @@ void FVertexBuffer::Create(ID3D11Device* InDevice, const void* InData, uint32 In
 	VertexCount = InVertexCount;
 	Stride = InStride;
 	MemoryStats::AddVertexBufferMemory(InByteWidth);
+}
+
+void FVertexBuffer::CreateDynamic(ID3D11Device* InDevice, const void* InData, uint32 InVertexCount, uint32 InStride)
+{
+	Release();
+
+	VertexCount = InVertexCount;
+	Stride = InStride;
+	if (!InDevice || VertexCount == 0 || Stride == 0)
+	{
+		VertexCount = 0;
+		return;
+	}
+
+	const uint32 ByteWidth = VertexCount * Stride;
+	D3D11_BUFFER_DESC VertexBufferDesc = {};
+	VertexBufferDesc.ByteWidth = ByteWidth;
+	VertexBufferDesc.Usage = D3D11_USAGE_DYNAMIC;
+	VertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	VertexBufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+	D3D11_SUBRESOURCE_DATA VertexBufferSRD = {};
+	VertexBufferSRD.pSysMem = InData;
+
+	HRESULT Hr = InDevice->CreateBuffer(&VertexBufferDesc, InData ? &VertexBufferSRD : nullptr, &Buffer);
+	if (FAILED(Hr))
+	{
+		VertexCount = 0;
+		return;
+	}
+
+	MemoryStats::AddVertexBufferMemory(ByteWidth);
+}
+
+bool FVertexBuffer::UpdateDynamic(ID3D11DeviceContext* InDeviceContext, const void* InData, uint32 InVertexCount)
+{
+	if (!Buffer || !InDeviceContext || !InData || InVertexCount == 0 || InVertexCount > VertexCount)
+	{
+		return false;
+	}
+
+	D3D11_MAPPED_SUBRESOURCE Mapped = {};
+	if (FAILED(InDeviceContext->Map(Buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &Mapped)))
+	{
+		return false;
+	}
+
+	std::memcpy(Mapped.pData, InData, static_cast<size_t>(Stride) * InVertexCount);
+	InDeviceContext->Unmap(Buffer, 0);
+	return true;
 }
 
 void FVertexBuffer::Release()

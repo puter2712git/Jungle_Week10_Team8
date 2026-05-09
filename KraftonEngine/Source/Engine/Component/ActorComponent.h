@@ -36,6 +36,8 @@ public:
 
 	bool IsHiddenInComponentTree() const { return bHiddenInComponentTree; }
 	void SetHiddenInComponentTree(bool bHidden) { bHiddenInComponentTree = bHidden; }
+	void SetTickInEditor(bool bInTickInEditor) { bTickInEditor = bInTickInEditor; }
+	bool ShouldTickInEditor() const { return bTickInEditor; }
 
 	void SetActive(bool bNewActive);
 	inline void SetAutoActivate(bool bNewAutoActivate) { bAutoActivate = bNewAutoActivate; }
@@ -66,6 +68,7 @@ protected:
 	
 	AActor* Owner = nullptr;
 	bool bTickEnable = true;
+	bool bTickInEditor = false;
 
 private:
 	bool bEditorOnly = false;
