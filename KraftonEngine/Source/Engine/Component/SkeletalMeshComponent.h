@@ -2,6 +2,7 @@
 
 #include "MeshComponent.h"
 #include "Core/PropertyTypes.h"
+#include <memory>
 
 class USkeletalMesh;
 class FArchive;
@@ -32,11 +33,24 @@ public:
 
 	const FString& GetSkeletalMeshPath() const { return SkeletalMeshPath; }
 
+protected:
+	void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction& ThisTickFunction) override;
+
 private:
 	void CacheLocalBounds();
+	void InitSkinningResources();
+
+	void UpdateCPUSkinning();
+	void UpdateSkinnedVertexBuffer();
 
 	USkeletalMesh* SkeletalMesh = nullptr;
 	FString SkeletalMeshPath = "None";
+
+	TArray<FVertexPNCTT> SkinnedVertices;
+	TArray<FMatrix> BoneCurrentGlobalMatrices;
+	TArray<FMatrix> SkinMatrices;
+
+	std::unique_ptr<FMeshBuffer> SkinnedRenderBuffer;
 
 	FVector CachedLocalCenter = { 0, 0, 0 };
 	FVector CachedLocalExtent = { 0.5f, 0.5f, 0.5f };

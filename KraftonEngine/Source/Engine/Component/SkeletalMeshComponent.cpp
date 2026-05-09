@@ -16,6 +16,11 @@ IMPLEMENT_CLASS(USkeletalMeshComponent, UMeshComponent)
 
 FMeshBuffer* USkeletalMeshComponent::GetMeshBuffer() const
 {
+	if (bEnableSkinning && SkinnedRenderBuffer)
+	{
+		return SkinnedRenderBuffer.get();
+	}
+
 	if (!SkeletalMesh)
 	{
 		return nullptr;
@@ -41,6 +46,7 @@ void USkeletalMeshComponent::SetSkeletalMesh(USkeletalMesh* InMesh)
 		SkeletalMeshPath = "None";
 	}
 
+	InitSkinningResources();
 	CacheLocalBounds();
 	MarkRenderStateDirty();
 	MarkWorldBoundsDirty();
@@ -63,6 +69,12 @@ FPrimitiveSceneProxy* USkeletalMeshComponent::CreateSceneProxy()
 	return new FSkeletalMeshSceneProxy(this);
 }
 
+void USkeletalMeshComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction& ThisTickFunction)
+{
+	UpdateCPUSkinning();
+	UpdateSkinnedVertexBuffer();
+}
+
 void USkeletalMeshComponent::CacheLocalBounds()
 {
 	bHasValidBounds = false;
@@ -79,6 +91,56 @@ void USkeletalMeshComponent::CacheLocalBounds()
 	CachedLocalCenter = Asset->BoundsCenter;
 	CachedLocalExtent = Asset->BoundsExtent;
 	bHasValidBounds = Asset->bBoundsValid;
+}
+
+void USkeletalMeshComponent::InitSkinningResources()
+{
+	SkinnedVertices.clear();
+	SkinnedRenderBuffer.reset();
+
+	if (!SkeletalMesh)
+		return;
+
+	FSkeletalMesh* Asset = SkeletalMesh->GetSkeletalMeshAsset();
+	if (!Asset || Asset->Vertices.empty() || Asset->Indices.empty())
+		return;
+
+	ID3D11Device* Device = GEngine->GetRenderer().GetFD3DDevice().GetDevice();
+	if (!Device)
+		return;
+
+	SkinnedVertices.resize(Asset->Vertices.size());
+
+	TMeshData<FVertexPNCTT> MeshData;
+	MeshData.Vertices.resize(Asset->Vertices.size());
+	MeshData.Indices = Asset->Indices;
+
+	for (size_t i = 0; i < Asset->Vertices.size(); ++i)
+	{
+		const FSkeletalVertex& Src = Asset->Vertices[i];
+
+		FVertexPNCTT Dst;
+		Dst.Position = Src.Position;
+		Dst.Normal = Src.Normal;
+		Dst.UV = Src.UV;
+		Dst.Tangent = Src.Tangent;
+		Dst.Color = FVector4(1, 1, 1, 1);
+
+		MeshData.Vertices[i] = Dst;
+		SkinnedVertices[i] = Dst;
+	}
+
+	SkinnedRenderBuffer = std::make_unique<FMeshBuffer>();
+	SkinnedRenderBuffer->Create(Device, MeshData);
+}
+
+void USkeletalMeshComponent::UpdateCPUSkinning()
+{
+
+}
+
+void USkeletalMeshComponent::UpdateSkinnedVertexBuffer()
+{
 }
 
 void USkeletalMeshComponent::UpdateWorldAABB() const
