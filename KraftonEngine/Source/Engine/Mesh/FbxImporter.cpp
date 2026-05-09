@@ -143,6 +143,8 @@ bool FFbxImporter::Import(const FString& FilePath)
 	}
 	Importer->Destroy();
 
+	NormalizeCoordinateUnit(Scene);
+
 	ProcessNode(Scene->GetRootNode());
 
 	SdkManager->Destroy();
@@ -424,6 +426,30 @@ void FFbxImporter::ComputeTangents()
 		//Tangent w는 bitangent 방향 부호
 		const float Handedness = N.Cross(T).Dot(B) < 0.0f ? -1.0f : 1.0f;
 		vertices[i].Tangent = FVector4(T.X, T.Y, T.Z, Handedness);
+	}
+}
+
+void FFbxImporter::NormalizeCoordinateUnit(FbxScene* Scene)
+{
+	if (!Scene)
+	{
+		UE_LOG("[FBXImporter] Failed to Normalize, Scene is nullptr");
+		return;
+	}
+
+	// Unit 적용
+	FbxSystemUnit SceneUnit = Scene->GetGlobalSettings().GetSystemUnit();
+	if (SceneUnit != FbxSystemUnit::cm)
+	{
+		FbxSystemUnit::cm.ConvertScene(Scene);
+	}
+
+	// Coordinate 적용
+	FbxAxisSystem TargetAxisSystem(FbxAxisSystem::eXAxis, FbxAxisSystem::eParityOdd, FbxAxisSystem::eLeftHanded);
+	FbxAxisSystem SceneAxisSystem = Scene->GetGlobalSettings().GetAxisSystem();
+	if (SceneAxisSystem != TargetAxisSystem)
+	{
+		TargetAxisSystem.ConvertScene(Scene);
 	}
 }
 

@@ -68,6 +68,7 @@ private:
 	int				FindOrAddVertex(FSkeletalMeshVertex Vertex);
 
 	void			ComputeTangents();
+	void			NormalizeCoordinateUnit(FbxScene* Scene);
 
 
 	UStaticMesh* BuildStaticMeshFromImportedData(const FString& FilePath, ID3D11Device* Device);
