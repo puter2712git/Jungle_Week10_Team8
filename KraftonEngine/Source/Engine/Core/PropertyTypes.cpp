@@ -46,6 +46,7 @@ json::JSON FPropertyDescriptor::Serialize() const
 	case EPropertyType::Script:
 	case EPropertyType::SceneComponentRef:
 	case EPropertyType::StaticMeshRef:
+	case EPropertyType::SkeletalMeshRef:
 		return JSON(*static_cast<FString*>(ValuePtr));
 
 	case EPropertyType::MaterialSlot:
@@ -150,6 +151,7 @@ void FPropertyDescriptor::Deserialize(json::JSON& Value)
 	case EPropertyType::Script:
 	case EPropertyType::SceneComponentRef:
 	case EPropertyType::StaticMeshRef:
+	case EPropertyType::SkeletalMeshRef:
 		*static_cast<FString*>(ValuePtr) = Value.ToString();
 		break;
 

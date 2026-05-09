@@ -13,6 +13,7 @@ public:
 	USkeletalMesh() = default;
 	~USkeletalMesh() override;
 
+	const FString& GetAssetPathFileName() const;
 	void SetSkeletalMeshAsset(FSkeletalMesh* InMesh);
 	FSkeletalMesh* GetSkeletalMeshAsset() const;
 

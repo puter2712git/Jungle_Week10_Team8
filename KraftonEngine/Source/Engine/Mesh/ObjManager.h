@@ -26,6 +26,7 @@ class FObjManager
 	static TMap<std::string, USkeletalMesh*> SkeletalMeshCache;
 	static TArray<FMeshAssetListItem> AvailableMeshFiles;
 	static TArray<FMeshAssetListItem> AvailableObjFiles;
+	static TArray<FMeshAssetListItem> AvailableFbxFiles;
 
 public:
 	static std::string GetBinaryFilePath(const std::string& OriginalPath);
@@ -36,6 +37,8 @@ public:
 	static const TArray<FMeshAssetListItem>& GetAvailableMeshFiles();
 	static void ScanObjSourceFiles();
 	static const TArray<FMeshAssetListItem>& GetAvailableObjFiles();
+	static void ScanFbxSourceFiles();
+	static const TArray<FMeshAssetListItem>& GetAvailableFbxFiles();
 
 	// 캐시된 StaticMesh GPU 리소스 해제 (Shutdown 시 Device 해제 전 호출)
 	static void ReleaseAllGPU();
