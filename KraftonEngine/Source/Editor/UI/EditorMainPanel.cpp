@@ -9,6 +9,11 @@
 #include "Object/Object.h"
 #include "Engine/Runtime/WindowsWindow.h"
 
+#include "Engine/Mesh/FbxImporter.h"
+#include "Engine/Mesh/SkeletalMesh.h"
+#include "Editor/UI/EditorFileUtils.h"
+#include "Engine/Platform/Paths.h"
+
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_impl_dx11.h"
 #include "ImGui/imgui_impl_win32.h"
@@ -197,6 +202,26 @@ void FEditorMainPanel::RenderMainMenuBar()
 		if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S") && EditorEngine)
 		{
 			EditorEngine->SaveSceneAsWithDialog();
+		}
+		if (ImGui::MenuItem("FBX Imports"))
+		{
+			const std::wstring InitialDir = FPaths::RootDir();
+			const FString SelectedPath = FEditorFileUtils::OpenFileDialog({
+				.Filter = L"FBX Files (*.fbx)\0*.fbx\0All Files (*.*)\0*.*\0",
+				.Title = L"Select FBX File",
+				.DefaultExtension = L"fbx",
+				.InitialDirectory = InitialDir.c_str(),
+				.OwnerWindowHandle = Window ? Window->GetHWND() : nullptr,
+				.bFileMustExist = true,
+				.bPathMustExist = true,
+				.bPromptOverwrite = false,
+				.bReturnRelativeToProjectRoot = false,
+			});
+
+			UE_LOG(SelectedPath.c_str());
+
+			FSkeletalMesh SkeletalMesh;
+			FFbxImporter::Import(SelectedPath, SkeletalMesh);
 		}
 
 		ImGui::Separator();

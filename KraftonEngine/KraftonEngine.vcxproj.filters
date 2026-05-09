@@ -1135,6 +1135,7 @@
     </ClCompile>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Source\Engine\Mesh\FbxImporter.cpp" />
+    <ClCompile Include="Source\Engine\Mesh\SkeletalMesh.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Editor\EditorEngine.h">
@@ -2803,6 +2804,7 @@
       <Filter>ThirdParty\sol2\include\sol\utility</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Mesh\FbxImporter.h" />
+    <ClInclude Include="Source\Engine\Mesh\SkeletalMesh.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="KraftonEngine.rc" />
