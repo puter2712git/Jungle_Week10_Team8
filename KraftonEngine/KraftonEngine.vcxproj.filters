@@ -1135,6 +1135,8 @@
     </ClCompile>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Source\Engine\Mesh\FbxImporter.cpp" />
+    <ClCompile Include="Source\Engine\Mesh\SkeletalMesh.cpp" />
+    <ClCompile Include="Source\Engine\Render\Proxy\SkeletalMeshSceneProxy.cpp" />
     <ClCompile Include="Source\Engine\Component\SkinnedMeshComponent.cpp" />
     <ClCompile Include="Source\Engine\Component\SkeletalMeshComponent.cpp" />
     <ClCompile Include="Source\Engine\GameFramework\SkeletalMeshActor.cpp" />
@@ -2806,6 +2808,9 @@
       <Filter>ThirdParty\sol2\include\sol\utility</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Mesh\FbxImporter.h" />
+    <ClInclude Include="Source\Engine\Mesh\SkeletalMesh.h" />
+    <ClInclude Include="Source\Engine\Mesh\SkeletalMeshAsset.h" />
+    <ClInclude Include="Source\Engine\Render\Proxy\SkeletalMeshSceneProxy.h" />
     <ClInclude Include="Source\Engine\Component\SkinnedMeshComponent.h" />
     <ClInclude Include="Source\Engine\Component\SkeletalMeshComponent.h" />
     <ClInclude Include="Source\Engine\GameFramework\SkeletalMeshActor.h" />

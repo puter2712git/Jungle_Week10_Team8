@@ -3,6 +3,8 @@
 #include "Component/PrimitiveComponent.h"
 #include "Component/ActorComponent.h"
 #include "Component/Movement/MovementComponent.h"
+#include "Component/SkeletalMeshComponent.h"
+#include "Core/Log.h"
 #include "Math/Rotator.h"
 #include "GameFramework/Level.h"
 #include "GameFramework/World.h"
@@ -353,6 +355,31 @@ namespace
 		}
 		return Out;
 	}
+
+	bool IsPIEDuplicateTarget(const AActor* DupOwner)
+	{
+		const UWorld* World = DupOwner ? DupOwner->GetWorld() : nullptr;
+		return World && World->GetWorldType() == EWorldType::PIE;
+	}
+
+	void LogPIEComponentDuplicate(const UActorComponent* Src, const UActorComponent* Dup)
+	{
+		if (!Src || !Dup)
+		{
+			return;
+		}
+
+		UE_LOG("[PIE Duplicate] SourceComponent=%p DuplicatedComponent=%p", Src, Dup);
+
+		const USkeletalMeshComponent* SourceSkeletalComponent = Cast<USkeletalMeshComponent>(Src);
+		const USkeletalMeshComponent* DuplicatedSkeletalComponent = Cast<USkeletalMeshComponent>(Dup);
+		if (SourceSkeletalComponent || DuplicatedSkeletalComponent)
+		{
+			UE_LOG("[PIE Duplicate] SourceSkeletalMesh=%p Duplicated/AssignedSkeletalMesh=%p",
+				SourceSkeletalComponent ? SourceSkeletalComponent->GetSkeletalMesh() : nullptr,
+				DuplicatedSkeletalComponent ? DuplicatedSkeletalComponent->GetSkeletalMesh() : nullptr);
+		}
+	}
 }
 
 // SceneComponent 서브트리를 재귀 복제. 부모 → 자식 순으로 만들되,
@@ -378,6 +405,11 @@ static USceneComponent* DuplicateSceneSubtree(
 	}
 	DupOwner->RegisterComponent(DupNode); // Outer/OwnedComponents/CreateRenderState 일괄 처리
 	Visited.insert(Src);
+
+	if (IsPIEDuplicateTarget(DupOwner))
+	{
+		LogPIEComponentDuplicate(Src, DupNode);
+	}
 
 	for (USceneComponent* Child : Src->GetChildren())
 	{
@@ -425,6 +457,11 @@ UObject* AActor::Duplicate(UObject* NewOuter) const
 		DupComp->SetOwner(Dup);
 		Dup->RegisterComponent(DupComp);
 		Visited.insert(Comp);
+
+		if (UWorld* DestWorld = Dup->GetWorld(); DestWorld && DestWorld->GetWorldType() == EWorldType::PIE)
+		{
+			LogPIEComponentDuplicate(Comp, DupComp);
+		}
 	}
 
 	Dup->bPrimitiveCacheDirty = true;

@@ -2,7 +2,6 @@
 #include "GameFramework/AActor.h"
 
 class USkeletalMeshComponent;
-class UStaticMeshComponent;
 
 class ASkeletalMeshActor : public AActor
 {
@@ -17,6 +16,5 @@ public:
 	// void InitDefaultComponents(const FString& UMeshFileName = "FBX\\Angelica\\Angelica.fbx");
 
 private:
-	UStaticMeshComponent* SkeletalMeshComponent;
+	USkeletalMeshComponent* SkeletalMeshComponent = nullptr;
 };
-

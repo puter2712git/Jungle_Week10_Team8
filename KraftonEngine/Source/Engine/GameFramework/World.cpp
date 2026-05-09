@@ -6,6 +6,7 @@
 #include "Render/Types/LODContext.h"
 #include "Physics/NativePhysicsScene.h"
 #include "Physics/PhysXPhysicsScene.h"
+#include "Core/Log.h"
 #include "Core/ProjectSettings.h"
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/GameStateBase.h"
@@ -62,10 +63,20 @@ UWorld* UWorld::DuplicateAs(EWorldType InWorldType) const
 	NewWorld->WorldSettings = WorldSettings;  // 씬 단위 설정 복제
 	NewWorld->InitWorld();
 
+	if (InWorldType == EWorldType::PIE)
+	{
+		UE_LOG("[PIE Duplicate] EditorWorld=%p", this);
+		UE_LOG("[PIE Duplicate] PlayWorld=%p", NewWorld);
+	}
+
 	for (AActor* Src : GetActors())
 	{
 		if (!Src) continue;
-		Src->Duplicate(NewWorld);
+		AActor* DuplicatedActor = Cast<AActor>(Src->Duplicate(NewWorld));
+		if (InWorldType == EWorldType::PIE)
+		{
+			UE_LOG("[PIE Duplicate] SourceActor=%p DuplicatedActor=%p", Src, DuplicatedActor);
+		}
 	}
 
 	NewWorld->PostDuplicate();

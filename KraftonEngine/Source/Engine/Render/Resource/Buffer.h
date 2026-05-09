@@ -16,7 +16,9 @@ public:
 	FVertexBuffer& operator=(FVertexBuffer&&) noexcept;
 
 	void Create(ID3D11Device* InDevice, const void* InData, uint32 InVertexCount, uint32 InByteWidth, uint32 InStride);
+	void CreateDynamic(ID3D11Device* InDevice, const void* InData, uint32 InVertexCount, uint32 InByteWidth, uint32 InStride);
 	void Release();
+	bool UpdateDynamic(ID3D11DeviceContext* InDeviceContext, const void* InData, uint32 InVertexCount, uint32 InByteWidth);
 
 	uint32 GetVertexCount() const { return VertexCount; }
 	uint32 GetStride() const { return Stride; }
@@ -89,6 +91,10 @@ public:
 
 	template<typename VertexType>
 	void Create(ID3D11Device* InDevice, const TMeshData<VertexType>& InMeshData);
+	template<typename VertexType>
+	void CreateDynamicVertexBuffer(ID3D11Device* InDevice, const TMeshData<VertexType>& InMeshData);
+	template<typename VertexType>
+	bool UpdateDynamicVertices(ID3D11DeviceContext* InContext, const TArray<VertexType>& InVertices);
 	void Release();
 
 	FVertexBuffer& GetVertexBuffer() { return VertexBuffer; }
@@ -184,4 +190,41 @@ void FMeshBuffer::Create(ID3D11Device* InDevice, const TMeshData<VertexType>& In
 
 		IndexBuffer.Create(InDevice, InMeshData.Indices.data(), IndexCount, IndexByteWidth);
 	}
+}
+
+template<typename VertexType>
+void FMeshBuffer::CreateDynamicVertexBuffer(ID3D11Device* InDevice, const TMeshData<VertexType>& InMeshData)
+{
+	Release();
+
+	if (InMeshData.Vertices.empty())
+	{
+		return;
+	}
+
+	uint32 VertexCount = static_cast<uint32>(InMeshData.Vertices.size());
+	uint32 VertexByteWidth = VertexCount * sizeof(VertexType);
+
+	VertexBuffer.CreateDynamic(InDevice, InMeshData.Vertices.data(), VertexCount, VertexByteWidth, sizeof(VertexType));
+
+	if (!InMeshData.Indices.empty())
+	{
+		uint32 IndexCount = static_cast<uint32>(InMeshData.Indices.size());
+		uint32 IndexByteWidth = IndexCount * sizeof(uint32);
+
+		IndexBuffer.Create(InDevice, InMeshData.Indices.data(), IndexCount, IndexByteWidth);
+	}
+}
+
+template<typename VertexType>
+bool FMeshBuffer::UpdateDynamicVertices(ID3D11DeviceContext* InContext, const TArray<VertexType>& InVertices)
+{
+	if (InVertices.empty())
+	{
+		return false;
+	}
+
+	const uint32 VertexCount = static_cast<uint32>(InVertices.size());
+	const uint32 VertexByteWidth = VertexCount * sizeof(VertexType);
+	return VertexBuffer.UpdateDynamic(InContext, InVertices.data(), VertexCount, VertexByteWidth);
 }
