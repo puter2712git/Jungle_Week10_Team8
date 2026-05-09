@@ -31,6 +31,7 @@
 #include "GameFramework/BoxActor.h"
 #include "GameFramework/SphereActor.h"
 #include "GameFramework/CapsuleActor.h"
+#include "GameFramework/SkeletalMeshActor.h"
 
 // Editor → Game 직접 결합 제거 — 게임-특화 spawn 항목은 FActorPlacementRegistry 를
 // 통해 런타임에 외부에서 등록된다 (Game 모듈의 RegisterGameActorPlacements 가 채움).
@@ -1840,6 +1841,7 @@ void FLevelViewportLayout::RenderViewportPlaceActorPopup()
 		PlaceActorMenuItem("Directional Light", EViewportPlaceActorType::DirectionalLight);
 		PlaceActorMenuItem("Point Light", EViewportPlaceActorType::PointLight);
 		PlaceActorMenuItem("Spot Light", EViewportPlaceActorType::SpotLight);
+		PlaceActorMenuItem("Skeletal Mesh", EViewportPlaceActorType::SkeletalMesh);
 		ImGui::Separator();
 		PlaceActorMenuItem("Box Collider", EViewportPlaceActorType::BoxCollider);
 		PlaceActorMenuItem("Sphere Collider", EViewportPlaceActorType::SphereCollider);
@@ -2091,6 +2093,16 @@ AActor* FLevelViewportLayout::SpawnActorFromViewportMenu(EViewportPlaceActorType
 	case EViewportPlaceActorType::TriggerVolume:
 	{
 		ATriggerVolumeBase* Actor = World->SpawnActor<ATriggerVolumeBase>();
+		if (Actor)
+		{
+			Actor->InitDefaultComponents();
+			SpawnedActor = Actor;
+		}
+		break;
+	}
+	case EViewportPlaceActorType::SkeletalMesh:
+	{
+		ASkeletalMeshActor* Actor = World->SpawnActor<ASkeletalMeshActor>();
 		if (Actor)
 		{
 			Actor->InitDefaultComponents();

@@ -41,6 +41,7 @@ const FDebugPlaceActorOption GDebugPlaceActorOptions[] = {
 	{ "Directional Light", FLevelViewportLayout::EViewportPlaceActorType::DirectionalLight },
 	{ "Point Light", FLevelViewportLayout::EViewportPlaceActorType::PointLight },
 	{ "Spot Light", FLevelViewportLayout::EViewportPlaceActorType::SpotLight },
+	{ "SkeletalMesh", FLevelViewportLayout::EViewportPlaceActorType::SkeletalMesh },
 };
 
 }
