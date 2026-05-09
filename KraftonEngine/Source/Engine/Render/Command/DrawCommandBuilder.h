@@ -6,8 +6,6 @@
 #include "Render/Geometry/FontGeometry.h"
 #include "Render/Proxy/PrimitiveSceneProxy.h"
 
-#include <memory>
-
 class FPassRenderStateTable;
 class FTextRenderSceneProxy;
 class FScene;
@@ -64,9 +62,7 @@ private:
 	FShader* SelectEffectiveShader(FShader* ProxyShader, EViewMode ViewMode);
 
 	FConstantBuffer* GetPerObjectCBForProxy(const FPrimitiveSceneProxy& Proxy);
-	FConstantBuffer* AllocateSectionPerObjectCB();
 	void EnsurePerObjectCBPoolCapacity(uint32 RequiredCount);
-	void EnsureSectionPerObjectCBPoolCapacity(uint32 RequiredCount);
 
 	// 커맨드 버퍼
 	FDrawCommandList DrawCommandList;
@@ -83,8 +79,6 @@ private:
 
 	// PerObject CB 풀
 	TArray<FConstantBuffer> PerObjectCBPool;
-	TArray<std::unique_ptr<FConstantBuffer>> SectionPerObjectCBPool;
-	uint32 SectionPerObjectCBUsed = 0;
 
 	// PostProcess CBs (Fog, Outline, SceneDepth, FXAA)
 	FConstantBuffer FogCB;

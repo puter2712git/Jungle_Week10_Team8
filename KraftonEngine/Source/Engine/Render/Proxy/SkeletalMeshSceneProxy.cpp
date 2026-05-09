@@ -6,8 +6,6 @@
 #include "Mesh/SkeletalMesh.h"
 #include "Mesh/SkeletalMeshAsset.h"
 
-#include <algorithm>
-
 FSkeletalMeshSceneProxy::FSkeletalMeshSceneProxy(USkeletalMeshComponent* InComponent)
 	: FPrimitiveSceneProxy(InComponent)
 {
@@ -22,12 +20,6 @@ void FSkeletalMeshSceneProxy::UpdateMesh()
 {
 	MeshBuffer = GetOwner()->GetMeshBuffer();
 	RebuildSectionDraws();
-}
-
-void FSkeletalMeshSceneProxy::UpdateTransform()
-{
-	FPrimitiveSceneProxy::UpdateTransform();
-	UpdateSectionObjectConstants();
 }
 
 void FSkeletalMeshSceneProxy::UpdateMaterial()
@@ -72,43 +64,5 @@ void FSkeletalMeshSceneProxy::RebuildSectionDraws()
 		{
 			SectionDraws.push_back({ Material, 0, IndexCount });
 		}
-	}
-
-	UpdateSectionObjectConstants();
-}
-
-void FSkeletalMeshSceneProxy::UpdateSectionObjectConstants()
-{
-	USkeletalMeshComponent* SMC = GetSkeletalMeshComponent();
-	USkeletalMesh* Mesh = SMC ? SMC->GetSkeletalMesh() : nullptr;
-	FSkeletalMesh* Asset = Mesh ? Mesh->GetSkeletalMeshAsset() : nullptr;
-	if (!SMC || !Asset || SMC->IsSkinningEnabled() || Asset->MeshRanges.empty())
-	{
-		for (FMeshSectionDraw& Draw : SectionDraws)
-		{
-			Draw.bOverridePerObjectConstants = false;
-		}
-		return;
-	}
-
-	const FMatrix& ComponentWorld = SMC->GetWorldMatrix();
-	const uint32 Count = (std::min)(static_cast<uint32>(SectionDraws.size()), static_cast<uint32>(Asset->MeshRanges.size()));
-	for (uint32 Index = 0; Index < Count; ++Index)
-	{
-		FMeshSectionDraw& Draw = SectionDraws[Index];
-		const FSkeletalMeshRange& Range = Asset->MeshRanges[Index];
-		if (!Range.bHasMeshScene)
-		{
-			Draw.bOverridePerObjectConstants = false;
-			continue;
-		}
-
-		Draw.bOverridePerObjectConstants = true;
-		Draw.PerObjectConstants = FPerObjectConstants::FromWorldMatrix(Range.MeshSceneGlobal * ComponentWorld);
-	}
-
-	for (uint32 Index = Count; Index < static_cast<uint32>(SectionDraws.size()); ++Index)
-	{
-		SectionDraws[Index].bOverridePerObjectConstants = false;
 	}
 }

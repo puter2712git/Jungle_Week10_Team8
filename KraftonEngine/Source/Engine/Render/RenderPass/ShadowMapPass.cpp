@@ -653,24 +653,9 @@ void FShadowMapPass::DrawShadowCasters(ID3D11DeviceContext* DC, FScene& Scene, F
 		if (IB)
 			DC->IASetIndexBuffer(IB, DXGI_FORMAT_R32_UINT, 0);
 
-		bool bUsingSectionPerObject = false;
 		for (const FMeshSectionDraw& Section : Proxy->GetSectionDraws())
 		{
 			if (Section.IndexCount == 0) continue;
-			if (Section.bOverridePerObjectConstants)
-			{
-				ShadowPerObjectCB.Update(DC, &Section.PerObjectConstants, sizeof(FPerObjectConstants));
-				b1 = ShadowPerObjectCB.GetBuffer();
-				DC->VSSetConstantBuffers(ECBSlot::PerObject, 1, &b1);
-				bUsingSectionPerObject = true;
-			}
-			else if (bUsingSectionPerObject)
-			{
-				ShadowPerObjectCB.Update(DC, &Proxy->GetPerObjectConstants(), sizeof(FPerObjectConstants));
-				b1 = ShadowPerObjectCB.GetBuffer();
-				DC->VSSetConstantBuffers(ECBSlot::PerObject, 1, &b1);
-				bUsingSectionPerObject = false;
-			}
 			DC->DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
 			SHADOW_STATS_ADD_DRAW_CALL();
 		}

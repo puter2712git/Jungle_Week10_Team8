@@ -55,16 +55,6 @@ void FDrawCommandBuilder::Release()
 	}
 	PerObjectCBPool.clear();
 
-	for (std::unique_ptr<FConstantBuffer>& CB : SectionPerObjectCBPool)
-	{
-		if (CB)
-		{
-			CB->Release();
-		}
-	}
-	SectionPerObjectCBPool.clear();
-	SectionPerObjectCBUsed = 0;
-
 	FogCB.Release();
 	OutlineCB.Release();
 	SceneDepthCB.Release();
@@ -84,7 +74,6 @@ void FDrawCommandBuilder::BeginCollect(const FFrameContext& Frame, uint32 MaxPro
 	DrawCommandList.Reset();
 	CollectViewMode = Frame.RenderOptions.ViewMode;
 	bHasSelectionMaskCommands = false;
-	SectionPerObjectCBUsed = 0;
 
 	// PerObjectCBPool 미리 할당 — Collect 도중 resize로 FDrawCommand.PerObjectCB
 	// 포인터가 무효화되는 것을 방지
@@ -164,16 +153,6 @@ void FDrawCommandBuilder::BuildCommandForProxy(const FPrimitiveSceneProxy& Proxy
 	ProxyBuffer.IB = Proxy.GetMeshBuffer()->GetIndexBuffer().GetBuffer();
 
 	// 섹션당 1개 커맨드 (per-section 셰이더)
-	uint32 SectionObjectOverrideCount = 0;
-	for (const FMeshSectionDraw& Section : Proxy.GetSectionDraws())
-	{
-		if (Section.bOverridePerObjectConstants)
-		{
-			++SectionObjectOverrideCount;
-		}
-	}
-	EnsureSectionPerObjectCBPoolCapacity(SectionPerObjectCBUsed + SectionObjectOverrideCount);
-
 	for (const FMeshSectionDraw& Section : Proxy.GetSectionDraws())
 	{
 		if (Section.IndexCount == 0) continue;
@@ -193,15 +172,6 @@ void FDrawCommandBuilder::BuildCommandForProxy(const FPrimitiveSceneProxy& Proxy
 		Cmd.PerObjectCB = PerObjCB;
 		Cmd.Buffer.FirstIndex = Section.FirstIndex;
 		Cmd.Buffer.IndexCount = Section.IndexCount;
-
-		if (Section.bOverridePerObjectConstants)
-		{
-			if (FConstantBuffer* SectionPerObjCB = AllocateSectionPerObjectCB())
-			{
-				SectionPerObjCB->Update(Ctx, &Section.PerObjectConstants, sizeof(FPerObjectConstants));
-				Cmd.PerObjectCB = SectionPerObjCB;
-			}
-		}
 
 		if (!bDepthOnly && Section.Material)
 		{
@@ -752,23 +722,6 @@ void FDrawCommandBuilder::EnsurePerObjectCBPoolCapacity(uint32 RequiredCount)
 	}
 }
 
-void FDrawCommandBuilder::EnsureSectionPerObjectCBPoolCapacity(uint32 RequiredCount)
-{
-	if (SectionPerObjectCBPool.size() >= RequiredCount)
-	{
-		return;
-	}
-
-	const size_t OldCount = SectionPerObjectCBPool.size();
-	SectionPerObjectCBPool.resize(RequiredCount);
-
-	for (size_t Index = OldCount; Index < SectionPerObjectCBPool.size(); ++Index)
-	{
-		SectionPerObjectCBPool[Index] = std::make_unique<FConstantBuffer>();
-		SectionPerObjectCBPool[Index]->Create(CachedDevice, sizeof(FPerObjectConstants));
-	}
-}
-
 FConstantBuffer* FDrawCommandBuilder::GetPerObjectCBForProxy(const FPrimitiveSceneProxy& Proxy)
 {
 	if (Proxy.GetProxyId() == UINT32_MAX)
@@ -778,11 +731,4 @@ FConstantBuffer* FDrawCommandBuilder::GetPerObjectCBForProxy(const FPrimitiveSce
 
 	EnsurePerObjectCBPoolCapacity(Proxy.GetProxyId() + 1);
 	return &PerObjectCBPool[Proxy.GetProxyId()];
-}
-
-FConstantBuffer* FDrawCommandBuilder::AllocateSectionPerObjectCB()
-{
-	EnsureSectionPerObjectCBPoolCapacity(SectionPerObjectCBUsed + 1);
-	std::unique_ptr<FConstantBuffer>& CB = SectionPerObjectCBPool[SectionPerObjectCBUsed++];
-	return CB.get();
 }
