@@ -10,12 +10,17 @@
 #include "Materials/MaterialManager.h"
 
 #include <algorithm>
+#include <cfloat>
+
+#pragma region 내부사용함수모음
 namespace
 {
-	// 내부에서만 사용하는 함수 모음 (Codex 아님 내가 다 씀)
-
-	// FbxVector4 -> FVector3 Convert 함수
-	// Fbx 단위 -> Engine 내부 단위로 변환
+	// ============================================================
+	// FBX 기본 값 변환
+	// ============================================================
+	// FBX SDK의 벡터 값을 엔진 FVector 형식으로 옮긴다.
+	// 이 함수는 좌표계 보정이나 Node Transform 적용을 하지 않고,
+	// 저장된 숫자를 단순히 엔진 자료형으로 바꾸는 역할만 한다.
 	FVector Convert(FbxVector4 Pos)
 	{
 		return FVector(
@@ -23,6 +28,58 @@ namespace
 			static_cast<float>(Pos[1]),
 			static_cast<float>(Pos[2])
 		);
+	}
+
+	// ============================================================
+	// Geometry Transform 행렬 생성
+	// ============================================================
+	// FBX의 Geometry Transform은 일반적인 Node Local/Global Transform과 다르다.
+	// 이 값은 자식 Node나 Bone에 상속되는 Transform이 아니라,
+	// 현재 Mesh Attribute에만 적용되는 추가 보정값이다.
+	// 그래서 SkeletalMesh 정점에는 미리 굽지 않고 Range에 따로 저장한다.
+	FbxAMatrix BuildFbxGeometryMatrix(FbxNode* Node)
+	{
+		FbxAMatrix Geometry;
+		Geometry.SetIdentity();
+
+		if (!Node)
+		{
+			return Geometry;
+		}
+
+		Geometry.SetT(Node->GetGeometricTranslation(FbxNode::eSourcePivot));
+		Geometry.SetR(Node->GetGeometricRotation(FbxNode::eSourcePivot));
+		Geometry.SetS(Node->GetGeometricScaling(FbxNode::eSourcePivot));
+		return Geometry;
+	}
+
+	// ============================================================
+	// FBX 행렬 변환
+	// ============================================================
+	// FBX SDK의 행렬을 엔진 FMatrix 형식으로 변환한다.
+	// 이 함수는 좌표계 변환 정책을 숨기지 않도록 단순 변환만 담당한다.
+	// 행벡터 기준 엔진 행렬에 맞춰 translation은 4번째 행에 저장한다.
+	FMatrix ConvertFbxMatrix(const FbxAMatrix& M)
+	{
+		const FbxVector4 Origin = M.MultT(FbxVector4(0.0, 0.0, 0.0));
+		const FbxVector4 AxisX = M.MultT(FbxVector4(1.0, 0.0, 0.0)) - Origin;
+		const FbxVector4 AxisY = M.MultT(FbxVector4(0.0, 1.0, 0.0)) - Origin;
+		const FbxVector4 AxisZ = M.MultT(FbxVector4(0.0, 0.0, 1.0)) - Origin;
+
+		FMatrix Out = FMatrix::Identity;
+		Out.M[0][0] = static_cast<float>(AxisX[0]);
+		Out.M[0][1] = static_cast<float>(AxisX[1]);
+		Out.M[0][2] = static_cast<float>(AxisX[2]);
+		Out.M[1][0] = static_cast<float>(AxisY[0]);
+		Out.M[1][1] = static_cast<float>(AxisY[1]);
+		Out.M[1][2] = static_cast<float>(AxisY[2]);
+		Out.M[2][0] = static_cast<float>(AxisZ[0]);
+		Out.M[2][1] = static_cast<float>(AxisZ[1]);
+		Out.M[2][2] = static_cast<float>(AxisZ[2]);
+		Out.M[3][0] = static_cast<float>(Origin[0]);
+		Out.M[3][1] = static_cast<float>(Origin[1]);
+		Out.M[3][2] = static_cast<float>(Origin[2]);
+		return Out;
 	}
 
 	FVector GetNormal(FbxMesh* Mesh, int32 pIdx, int32 corner)
@@ -60,8 +117,10 @@ namespace
 		);
 	}
 
-	void NormalizeAndLimitTo4(const TArray<BoneInfluence>& influences, uint32* BoneIndices, float* BoneWeights, int32 BoneCount)
+	// 최대 4개의 영향을 주는 Bone을 찾아서 넣어주고, Weight를 정규화하는 함수
+	void NormalizeAndLimitTo4(const TArray<BoneInfluence>& influences, uint32* BoneIndices, float* BoneWeights, int32 BoneCount, int32 FallbackBoneIndex)
 	{
+		// 초기화
 		int cnt = 0;
 		float WeightSum = 0.f;
 
@@ -71,13 +130,16 @@ namespace
 			BoneWeights[i] = 0.0f;
 		}
 
-		// TODO: influence Sorting, 큰 weight 우선으로 정렬하는 게 좋음
-		/*influences.sort([](const BoneInfluence& A, const BoneInfluence& B)
+		TArray<BoneInfluence> SortedInfluences = influences;
+		// influence Sorting, 큰 weight 우선으로 정렬 (영향을 많이 주는 Bone만 남긴다)
+		(std::sort)(SortedInfluences.begin(), SortedInfluences.end(),
+			[](BoneInfluence& A, BoneInfluence& B)
 			{
 				return A.boneWeight > B.boneWeight;
-			});*/
+			});
 
-		for (auto influence : influences)
+		// mesh에 영향을 주는 bone, weight 정보를 채운다
+		for (auto influence : SortedInfluences)
 		{
 			if (cnt >= 4) break;
 
@@ -87,6 +149,7 @@ namespace
 			WeightSum += BoneWeights[cnt];
 			cnt++;
 		}
+
 		if (WeightSum > 1e-6f)
 		{
 			for (int i = 0; i < cnt; ++i)
@@ -96,7 +159,11 @@ namespace
 		}
 		else if (BoneCount > 0)
 		{
-			BoneIndices[0] = 0;
+			// Skin Cluster가 없는 경우 Mesh위치에서 가장 가까운 Bone에 rigid bind 시킨다.
+			const int32 SafeFallbackBoneIndex =
+				(FallbackBoneIndex >= 0 && FallbackBoneIndex < BoneCount)
+				? FallbackBoneIndex : 0;
+			BoneIndices[0] = static_cast<uint32>(SafeFallbackBoneIndex);
 			BoneWeights[0] = 1.0f;
 		}
 	}
@@ -126,25 +193,6 @@ namespace
 			S[0], S[1], S[2]);
 	}
 
-	FbxNode* FindNodeByName(FbxNode* Node, const FString& NodeName)
-	{
-		if (!Node) return nullptr;
-		if (Node->GetName() && NodeName == Node->GetName())
-		{
-			return Node;
-		}
-
-		for (int32 i = 0; i < Node->GetChildCount(); ++i)
-		{
-			if (FbxNode* Found = FindNodeByName(Node->GetChild(i), NodeName))
-			{
-				return Found;
-			}
-		}
-
-		return nullptr;
-	}
-
 	bool IsSkeletonNode(FbxNode* Node)
 	{
 		if (!Node) return false;
@@ -162,29 +210,6 @@ namespace
 			}
 		}
 		return nullptr;
-	}
-
-	FMatrix ConvertFbxMatrix(const FbxAMatrix& M)
-	{
-		const FbxVector4 Origin = M.MultT(FbxVector4(0.0, 0.0, 0.0));
-		const FbxVector4 AxisX = M.MultT(FbxVector4(1.0, 0.0, 0.0)) - Origin;
-		const FbxVector4 AxisY = M.MultT(FbxVector4(0.0, 1.0, 0.0)) - Origin;
-		const FbxVector4 AxisZ = M.MultT(FbxVector4(0.0, 0.0, 1.0)) - Origin;
-
-		FMatrix Out = FMatrix::Identity;
-		Out.M[0][0] = static_cast<float>(AxisX[0]);
-		Out.M[0][1] = static_cast<float>(AxisX[1]);
-		Out.M[0][2] = static_cast<float>(AxisX[2]);
-		Out.M[1][0] = static_cast<float>(AxisY[0]);
-		Out.M[1][1] = static_cast<float>(AxisY[1]);
-		Out.M[1][2] = static_cast<float>(AxisY[2]);
-		Out.M[2][0] = static_cast<float>(AxisZ[0]);
-		Out.M[2][1] = static_cast<float>(AxisZ[1]);
-		Out.M[2][2] = static_cast<float>(AxisZ[2]);
-		Out.M[3][0] = static_cast<float>(Origin[0]);
-		Out.M[3][1] = static_cast<float>(Origin[1]);
-		Out.M[3][2] = static_cast<float>(Origin[2]);
-		return Out;
 	}
 
 	TArray<FStaticMaterial> BuildDefaultStaticMaterials()
@@ -227,19 +252,22 @@ namespace
 		return Section;
 	}
 }
+#pragma endregion
 
 bool FFbxImporter::Import(const FString& FilePath)
 {
 	FFbxImportOptions Options;
-	Options.MeshType = EFbxImportMeshType::StaticMesh;
+	Options.MeshType = EFbxImportMeshType::SkeletalMesh;
 	return Import(FilePath, Options);
 }
 
+// 재귀적 node 순회
 bool FFbxImporter::Import(const FString& FilePath, const FFbxImportOptions& Options)
 {
 	// import 전 clear
 	vertices.clear();
 	indices.clear();
+	vertexRanges.clear();
 	InfluencesPerControlPoint.clear();
 	BoneNodeToIndex.clear();
 	Bones.clear();
@@ -287,17 +315,11 @@ bool FFbxImporter::Import(const FString& FilePath, const FFbxImportOptions& Opti
 	ApplySceneUnitConversion(Scene, Options);
 	ApplySceneAxisConversion(Scene, Options);
 
-	FbxNode* ImportRootNode = SelectImportRootNode(Scene, Options);
-	if (!ImportRootNode)
-	{
-		UE_LOG("[FBXImporter] Import root selection failed: %s", FilePath.c_str());
-		SdkManager->Destroy();
-		return false;
-	}
-
-	FbxAMatrix ImportRootGlobal = ImportRootNode->EvaluateGlobalTransform();
-	ImportRootGlobalInverse = ImportRootGlobal.Inverse();
-
+	// ============================================================
+	// Scene 순회 시작
+	// ============================================================
+	// SkeletalMesh는 ControlPoint를 Mesh Node local 원본 좌표로 보존한다.
+	// 이전처럼 임의 root inverse를 곱해 하나의 root local space로 강제 보정하지 않는다.
 	ProcessNode(Scene->GetRootNode(), 0, Options);
 
 	// StaticMesh/SkeletalMesh 양쪽에서 tangent가 필요하므로 전체 노드 처리 후 한 번만 계산합니다.
@@ -307,7 +329,46 @@ bool FFbxImporter::Import(const FString& FilePath, const FFbxImportOptions& Opti
 	return true;
 }
 
-// 재귀적 node 순회
+UStaticMesh* FFbxImporter::ImportAsStaticMesh(const FString& FilePath, ID3D11Device* Device)
+{
+	FFbxImportOptions Options;
+	Options.MeshType = EFbxImportMeshType::StaticMesh;
+
+	if (!Import(FilePath, Options))
+	{
+		UE_LOG("[FBXImport] Import failed: %s", FilePath.c_str());
+		return nullptr;
+	}
+
+	if (vertices.empty() || indices.empty())
+	{
+		UE_LOG("[FBXImport] Import mesh is empty : %s", FilePath.c_str());
+		return nullptr;
+	}
+	return BuildStaticMeshFromImportedData(FilePath, Device);
+}
+
+USkeletalMesh* FFbxImporter::ImportAsSkeletalMesh(const FString& FilePath, ID3D11Device* Device)
+{
+	FFbxImportOptions Options;
+	Options.MeshType = EFbxImportMeshType::SkeletalMesh;
+	Options.bImportBones = true;
+
+	if (!Import(FilePath, Options))
+	{
+		UE_LOG("[FBXImport] Skeletal import failed: %s", FilePath.c_str());
+		return nullptr;
+	}
+
+	if (vertices.empty() || indices.empty())
+	{
+		UE_LOG("[FBXImport] Skeletal mesh is empty: %s", FilePath.c_str());
+		return nullptr;
+	}
+
+	return BuildSkeletalMeshFromImportedData(FilePath, Device);
+}
+
 void FFbxImporter::ProcessNode(FbxNode* Node, int32 cnt, const FFbxImportOptions& Options)
 {
 	if (!Node) return;
@@ -327,9 +388,16 @@ void FFbxImporter::ProcessNode(FbxNode* Node, int32 cnt, const FFbxImportOptions
 					UE_LOG("cnt: %d, Node: %s, Mesh: %s", cnt, NodeName, Mesh->GetName());
 				}
 
+				CurrentRigidFallbackBoneIndex = -1;
+
 				if (Options.bImportBones)
 				{
 					PreLoadCluster(Mesh);
+					if (Options.MeshType == EFbxImportMeshType::SkeletalMesh)
+					{
+						CurrentRigidFallbackBoneIndex = FindRigidFallbackBoneForMesh(Node);
+					}
+
 					if (Options.MeshType == EFbxImportMeshType::SkeletalMesh && Bones.empty())
 					{
 						UE_LOG("[FBXImporter] Skeletal mesh has no bone influences on mesh: %s", Mesh->GetName());
@@ -352,26 +420,15 @@ void FFbxImporter::ProcessNode(FbxNode* Node, int32 cnt, const FFbxImportOptions
 	}
 }
 
-void FFbxImporter::ProcessMesh(FbxNode* Node)
-{
-	FbxMesh* Mesh = Node->GetMesh();
-	FbxVector4* Vertices = Mesh->GetControlPoints();
-
-
-	for (int i = 0; i < Mesh->GetControlPointsCount(); ++i)
-	{
-		float x = (float)Vertices[i][0];
-		float y = (float)Vertices[i][1];
-		float z = (float)Vertices[i][2];
-
-		UE_LOG("Mesh Vertex: (%f, %f, %f)", x, y, z);
-	}
-}
-
 void FFbxImporter::ProcessPolygon(FbxNode* Node, const FFbxImportOptions& Options)
 {
 	FbxMesh* Mesh = Node->GetMesh();
-	// Temp UV Name Code
+	if (!Mesh)
+	{
+		return;
+	}
+
+	// Mesh가 가진 UV Set 중 첫 번째 채널을 읽어 렌더 정점에 저장한다.
 	const char* uvSetName = nullptr;
 	FbxStringList uvSetNames;
 	Mesh->GetUVSetNames(uvSetNames);
@@ -380,114 +437,119 @@ void FFbxImporter::ProcessPolygon(FbxNode* Node, const FFbxImportOptions& Option
 		uvSetName = uvSetNames.GetStringAt(0);
 	}
 
-	// Node의 GlobalTransform
-	FbxAMatrix GlobalTransform = Node->EvaluateGlobalTransform();
+	// ============================================================
+	// Mesh Range 생성
+	// ============================================================
+	// 하나의 FBX Mesh Node에서 나온 정점/인덱스 범위를 기록한다.
+	// 여러 Mesh Node를 하나의 SkeletalMesh로 합치더라도,
+	// 각 범위가 어떤 Node Transform과 Geometry Transform을 써야 하는지
+	// 잃어버리지 않기 위해 필요하다.
+	const FbxAMatrix NodeGlobal = Node->EvaluateGlobalTransform();
+	const FbxAMatrix FbxGeometry = BuildFbxGeometryMatrix(Node);
+	const FMatrix GeometryTransform = GetGeometryTransformFromNode(Node);
+	const FMatrix MeshNodeGlobalBindTransform = ConvertFbxMatrix(NodeGlobal);
 
-	// Geometry Transform
-	FbxAMatrix Geometry;
-	Geometry.SetIdentity();
-	Geometry.SetT(Node->GetGeometricTranslation(FbxNode::eSourcePivot));
-	Geometry.SetR(Node->GetGeometricRotation(FbxNode::eSourcePivot));
-	Geometry.SetS(Node->GetGeometricScaling(FbxNode::eSourcePivot));
-
-	if (!Options.bBakeGeometryTransform)
+	FSkeletalMeshVertexRange VertexRange;
+	if (Options.MeshType == EFbxImportMeshType::SkeletalMesh)
 	{
-		Geometry.SetIdentity();
+		VertexRange.BaseVertex = static_cast<uint32>(vertices.size());
+		VertexRange.BaseIndex = static_cast<uint32>(indices.size());
+		VertexRange.MeshNodeName = Node->GetName();
+		VertexRange.GeometryTransform = GeometryTransform;
+		VertexRange.MeshNodeGlobalBindTransform = MeshNodeGlobalBindTransform;
+		VertexRange.MeshNodeGlobalBindInverseTransform = MeshNodeGlobalBindTransform.GetInverse();
 	}
 
 	if (Options.bLogNodeTransforms)
 	{
 		UE_LOG("==== Mesh Node: %s / Mesh: %s ====", Node->GetName(), Mesh->GetName());
-		PrintMatrixT("Global", GlobalTransform);
-		PrintMatrixT("Geometry", Geometry);
+		PrintMatrixT("Global", NodeGlobal);
+		PrintMatrixT("Geometry", FbxGeometry);
 	}
 
 	// mesh polygon 순회
 	for (int32 pIdx = 0; pIdx < Mesh->GetPolygonCount(); ++pIdx)
 	{
-		// int materialIdx = Mesh->GetMaterialIndices();
-
 		for (int32 corner = 0; corner < Mesh->GetPolygonSize(pIdx); ++corner)
 		{
-			int cpIndex = Mesh->GetPolygonVertex(pIdx, corner); //Polygon이 사용하는 Control Point Idx
+			// Polygon corner가 참조하는 FBX ControlPoint 인덱스다.
+			const int cpIndex = Mesh->GetPolygonVertex(pIdx, corner);
 			FSkeletalMeshVertex v = {};
 
-			// FbxVector4 -> FVector3로 변환
-			// ControlPoint
+			// 1. 원본 ControlPoint 좌표를 가져온다. Geometry는 아직 곱하지 않는다.
 			FbxVector4 ControlPoint = Mesh->GetControlPoints()[cpIndex];
 
-			FbxVector4 FinalPos = TransformControlPointForImport(
-				ControlPoint,
-				Geometry,
-				GlobalTransform,
-				ImportRootGlobalInverse,
-				Options);
-
-			v.Position = Convert(FinalPos);
+			if (Options.MeshType == EFbxImportMeshType::SkeletalMesh)
+			{
+				// SkeletalMesh 정점은 FBX Mesh의 ControlPoint 원본 좌표를 그대로 보존한다.
+				// Geometry, Mesh Node Global, Common Root 보정은 여기서 절대 굽지 않는다.
+				v.Position = Convert(ControlPoint);
+			}
+			else
+			{
+				// StaticMesh는 현재 렌더링 구조에 맞춰 Mesh Node의 Geometry와 Global Transform을 정점에 굽는다.
+				// 이 경로는 SkeletalMesh의 원본 ControlPoint 보존 정책과 분리되어 있다.
+				v.Position = Convert(NodeGlobal.MultT(FbxGeometry.MultT(ControlPoint)));
+			}
 
 			// FBX -> Normal 변환
-			// TODO: Position 변환 정책에 맞춰 normal/tangent 변환 필요. 현재는 임시로 원본 normal 사용.
-			v.Normal = TransformNormalForImport(GetNormal(Mesh, pIdx, corner), Geometry, GlobalTransform, Options);
-			// FBX UV -> 프로젝트 기준 UV로 변환해주는 
+			// TODO: Non-uniform scale 대응 시 inverse-transpose가 필요하다.
+			v.Normal = GetNormal(Mesh, pIdx, corner);
+			// FBX UV는 DirectX 텍스처 좌표 기준에 맞춰 V를 뒤집어 저장한다.
 			v.UV = GetUV(Mesh, pIdx, corner, uvSetName);
-			v.Tangent = TransformTangentForImport(FVector4(0.f, 0.f, 0.f, 0.f), Geometry, GlobalTransform, Options);
+			v.Tangent = FVector4(0.f, 0.f, 0.f, 0.f);
 			// v.MaterialIndex 나중에 연결
 
-			// Bone Indices, Bone Weight 채우기
+			// 2. 이 정점이 어떤 Bone의 영향을 받는지 저장한다.
 			TArray<BoneInfluence> EmptyInfluences;
 			const TArray<BoneInfluence>* Influences = &EmptyInfluences;
 			if (cpIndex >= 0 && cpIndex < static_cast<int32>(InfluencesPerControlPoint.size()))
 			{
 				Influences = &InfluencesPerControlPoint[cpIndex]; // cpIndex에 해당하는 Cluster 가져오기
 			}
-			NormalizeAndLimitTo4(*Influences, v.BoneIndices, v.BoneWeights, static_cast<int32>(Bones.size()));
+			NormalizeAndLimitTo4(
+				*Influences, 
+				v.BoneIndices, 
+				v.BoneWeights, 
+				static_cast<int32>(Bones.size()), 
+				CurrentRigidFallbackBoneIndex);
 
 			uint32 VertexIndex = FindOrAddVertex(v);
+			// 3. IndexBuffer는 전체 VertexBuffer 기준 absolute index를 유지한다.
 			indices.push_back(VertexIndex);
+
+			if (Influences->empty() && CurrentRigidFallbackBoneIndex >= 0)
+			{
+				UE_LOG("[FBXImporter] Rigid fallback mesh=%s cp=%d -> Bone[%d]=%s",
+					Node->GetName(),
+					cpIndex,
+					CurrentRigidFallbackBoneIndex,
+					Bones[CurrentRigidFallbackBoneIndex].Name.c_str());
+			}
 		}
 	}
-}
 
-UStaticMesh* FFbxImporter::ImportAsStaticMesh(const FString& FilePath, ID3D11Device* Device)
-{
-	FFbxImportOptions Options;
-	Options.MeshType = EFbxImportMeshType::StaticMesh;
-	Options.PositionMode = EFbxImportPositionMode::UnifiedRootLocal;
-
-	if (!Import(FilePath, Options))
+	if (Options.MeshType == EFbxImportMeshType::SkeletalMesh)
 	{
-		UE_LOG("[FBXImport] Import failed: %s", FilePath.c_str());
-		return nullptr;
+		VertexRange.VertexCount = static_cast<uint32>(vertices.size()) - VertexRange.BaseVertex;
+		VertexRange.IndexCount = static_cast<uint32>(indices.size()) - VertexRange.BaseIndex;
+
+		if (VertexRange.VertexCount > 0 && VertexRange.IndexCount > 0)
+		{
+			vertexRanges.push_back(VertexRange);
+
+			const FVector GeometryT = VertexRange.GeometryTransform.GetLocation();
+			const FVector MeshNodeT = VertexRange.MeshNodeGlobalBindTransform.GetLocation();
+			UE_LOG("[FBX MeshRange] MeshNode=%s BaseVertex=%u VertexCount=%u BaseIndex=%u IndexCount=%u GeometryT=(%.3f %.3f %.3f) MeshNodeBindT=(%.3f %.3f %.3f)",
+				VertexRange.MeshNodeName.c_str(),
+				VertexRange.BaseVertex,
+				VertexRange.VertexCount,
+				VertexRange.BaseIndex,
+				VertexRange.IndexCount,
+				GeometryT.X, GeometryT.Y, GeometryT.Z,
+				MeshNodeT.X, MeshNodeT.Y, MeshNodeT.Z);
+		}
 	}
-
-	if (vertices.empty() || indices.empty())
-	{
-		UE_LOG("[FBXImport] Import mesh is empty : %s", FilePath.c_str());
-		return nullptr;
-	}
-	return BuildStaticMeshFromImportedData(FilePath, Device);
-}
-
-USkeletalMesh* FFbxImporter::ImportAsSkeletalMesh(const FString& FilePath, ID3D11Device* Device)
-{
-	FFbxImportOptions Options;
-	Options.MeshType = EFbxImportMeshType::SkeletalMesh;
-	Options.PositionMode = EFbxImportPositionMode::UnifiedRootLocal;
-	Options.bImportBones = true;
-
-	if (!Import(FilePath, Options))
-	{
-		UE_LOG("[FBXImport] Skeletal import failed: %s", FilePath.c_str());
-		return nullptr;
-	}
-
-	if (vertices.empty() || indices.empty())
-	{
-		UE_LOG("[FBXImport] Skeletal mesh is empty: %s", FilePath.c_str());
-		return nullptr;
-	}
-
-	return BuildSkeletalMeshFromImportedData(FilePath, Device);
 }
 
 // Control Point기준 influence Map으로 변환
@@ -552,11 +614,12 @@ int FFbxImporter::FindOrAddBone(FbxNode* BoneNode)
 	{
 		bone.ParentIndex = -1;
 	}
+	bone.ChildCount = BoneNode->GetChildCount();
 	bone.FbxNode = BoneNode;
-	FbxAMatrix BoneGlobalImportRoot = BoneNode->EvaluateGlobalTransform() * ImportRootGlobalInverse;
+	FbxAMatrix BoneGlobal = BoneNode->EvaluateGlobalTransform();
 	bone.MeshBindGlobalTransform = FMatrix::Identity;
-	bone.GlobalBindTransform = ConvertFbxMatrix(BoneGlobalImportRoot);
-	bone.InverseBindTransform = ConvertFbxMatrix(BoneGlobalImportRoot.Inverse());
+	bone.GlobalBindTransform = ConvertFbxMatrix(BoneGlobal);
+	bone.InverseBindTransform = bone.GlobalBindTransform.GetInverse();
 	bone.LocalBindTransform = bone.GlobalBindTransform;
 
 	// 새로할당된 BoneNode의 index
@@ -582,15 +645,24 @@ void FFbxImporter::FillBoneBindData(int32 BoneIndex, FbxCluster* Cluster)
 	FbxAMatrix BoneBindGlobal;
 	Cluster->GetTransformLinkMatrix(BoneBindGlobal);
 
-	// SourceVertices는 기본 UnifiedRootLocal 정책에서 ImportRootLocal 공간에 저장된다.
-	// 따라서 FBX scene global bind matrix도 같은 ImportRootLocal 공간으로 변환해 저장한다.
-	const FbxAMatrix MeshBindImportRoot = MeshBindGlobal * ImportRootGlobalInverse;
-	const FbxAMatrix BoneBindImportRoot = BoneBindGlobal * ImportRootGlobalInverse;
-
-	Bone.MeshBindGlobalTransform = ConvertFbxMatrix(MeshBindImportRoot);
-	Bone.GlobalBindTransform = ConvertFbxMatrix(BoneBindImportRoot);
-	Bone.InverseBindTransform = ConvertFbxMatrix(BoneBindImportRoot.Inverse());
+	// ============================================================
+	// Bone Bind Transform 저장
+	// ============================================================
+	// Cluster가 제공하는 Link Matrix는 Bone의 bind pose Global Transform이다.
+	// 이 값은 FBX Scene Global 기준 그대로 저장한다.
+	// CommonRootInverse나 MeshNode 보정을 Bone 행렬에 섞지 않는다.
+	Bone.MeshBindGlobalTransform = ConvertFbxMatrix(MeshBindGlobal);
+	Bone.GlobalBindTransform = ConvertFbxMatrix(BoneBindGlobal);
+	Bone.InverseBindTransform = Bone.GlobalBindTransform.GetInverse();
 	Bone.bHasBindTransform = true;
+
+	const FVector GlobalBindT = Bone.GlobalBindTransform.GetLocation();
+	const FVector InverseBindT = Bone.InverseBindTransform.GetLocation();
+	UE_LOG("[FBX BoneBind] Bone=%s ParentIndex=%d GlobalBindT=(%.3f %.3f %.3f) InverseBindT=(%.3f %.3f %.3f)",
+		Bone.Name.c_str(),
+		Bone.ParentIndex,
+		GlobalBindT.X, GlobalBindT.Y, GlobalBindT.Z,
+		InverseBindT.X, InverseBindT.Y, InverseBindT.Z);
 }
 
 void FFbxImporter::DeriveLocalBindTransformsFromGlobalBindTransforms()
@@ -794,168 +866,20 @@ FbxAMatrix FFbxImporter::BuildManualAxisFixMatrix(const FFbxImportOptions& Optio
 	return ManualAxisFix;
 }
 
-FbxNode* FFbxImporter::SelectImportRootNode(FbxScene* Scene, const FFbxImportOptions& Options)
+FMatrix FFbxImporter::GetGeometryTransformFromNode(FbxNode* Node) const
 {
-	FbxNode* SceneRoot = Scene ? Scene->GetRootNode() : nullptr;
-	FbxNode* SelectedRoot = nullptr;
-
-	switch (Options.RootMode)
-	{
-	case EFbxImportRootMode::SceneRoot:
-		SelectedRoot = SceneRoot;
-		break;
-	case EFbxImportRootMode::FirstChild:
-		SelectedRoot = (SceneRoot && SceneRoot->GetChildCount() > 0) ? SceneRoot->GetChild(0) : nullptr;
-		break;
-	case EFbxImportRootMode::FirstSkeleton:
-		SelectedRoot = FindFirstSkeletonRoot(SceneRoot);
-		break;
-	case EFbxImportRootMode::FirstMesh:
-		SelectedRoot = FindFirstMeshRoot(SceneRoot);
-		break;
-	case EFbxImportRootMode::FirstMeshParent:
-		if (FbxNode* MeshRoot = FindFirstMeshRoot(SceneRoot))
-		{
-			SelectedRoot = MeshRoot->GetParent();
-		}
-		break;
-	case EFbxImportRootMode::ExplicitNodeName:
-		SelectedRoot = FindNodeByName(SceneRoot, Options.ExplicitRootNodeName);
-		if (!SelectedRoot)
-		{
-			UE_LOG("[FBXImporter] Explicit import root not found: %s", Options.ExplicitRootNodeName.c_str());
-		}
-		break;
-	default:
-		break;
-	}
-
-	if (!SelectedRoot)
-	{
-		SelectedRoot = SceneRoot;
-	}
-
-	if (Options.bLogImportRoot)
-	{
-		UE_LOG("[FBXImporter] ImportRootNode: %s", SelectedRoot ? SelectedRoot->GetName() : "(null)");
-	}
-
-	return SelectedRoot;
+	// ============================================================
+	// Geometry Transform 추출
+	// ============================================================
+	// FBX의 Geometry Transform은 일반적인 Node Local/Global Transform과 다르다.
+	// 이 값은 자식 Node나 Bone에 상속되는 Transform이 아니라,
+	// 현재 Mesh Attribute에만 적용되는 추가 보정값이다.
+	// 그래서 정점에 미리 굽지 않고 Range에 따로 저장해둔다.
+	// Skinning 또는 렌더링 단계에서 해당 Range의 정점에만 적용한다.
+	return ConvertFbxMatrix(BuildFbxGeometryMatrix(Node));
 }
 
-FbxNode* FFbxImporter::FindFirstSkeletonRoot(FbxNode* Node)
-{
-	if (!Node) return nullptr;
-
-	FbxNodeAttribute* Attr = Node->GetNodeAttribute();
-	if (Attr && Attr->GetAttributeType() == FbxNodeAttribute::eSkeleton)
-	{
-		return Node;
-	}
-
-	for (int32 i = 0; i < Node->GetChildCount(); ++i)
-	{
-		if (FbxNode* Found = FindFirstSkeletonRoot(Node->GetChild(i)))
-		{
-			return Found;
-		}
-	}
-
-	return nullptr;
-}
-
-FbxNode* FFbxImporter::FindFirstMeshRoot(FbxNode* Node)
-{
-	return FindFirstMesh(Node);
-}
-
-FbxNode* FFbxImporter::FindFirstMesh(FbxNode* Node)
-{
-	if (!Node) return nullptr;
-
-	FbxNodeAttribute* Attr = Node->GetNodeAttribute();
-	if (Attr && Attr->GetAttributeType() == FbxNodeAttribute::eMesh)
-	{
-		return Node;
-	}
-
-	for (int i = 0; i < Node->GetChildCount(); ++i)
-	{
-		if (FbxNode* Found = FindFirstMesh(Node->GetChild(i)))
-		{
-			return Found;
-		}
-	}
-
-	return nullptr;
-}
-
-FbxVector4 FFbxImporter::TransformControlPointForImport(
-	const FbxVector4& ControlPoint,
-	const FbxAMatrix& Geometry,
-	const FbxAMatrix& NodeGlobal,
-	const FbxAMatrix& ImportRootGlobalInverse,
-	const FFbxImportOptions& Options)
-{
-	/*
-	행벡터 개념:
-	RawControlPoint = ControlPoint
-	GeometryOnly = ControlPoint * Geometry
-	SceneBake = ControlPoint * Geometry * NodeGlobal
-	UnifiedRootLocal = ControlPoint * Geometry * NodeGlobal * Inverse(ImportRootGlobal)
-
-	FBX SDK MultT 호출 순서는 현재 정상 동작한 방식과 맞춘다:
-	ScenePos = NodeGlobal.MultT(Geometry.MultT(ControlPoint));
-	UnifiedLocalPos = ImportRootGlobalInverse.MultT(ScenePos);
-	*/
-	switch (Options.PositionMode)
-	{
-	case EFbxImportPositionMode::RawControlPoint:
-		return ControlPoint;
-	case EFbxImportPositionMode::GeometryOnly:
-		return Geometry.MultT(ControlPoint);
-	case EFbxImportPositionMode::SceneBake:
-		return NodeGlobal.MultT(Geometry.MultT(ControlPoint));
-	case EFbxImportPositionMode::UnifiedRootLocal:
-	default:
-	{
-		FbxVector4 ScenePos = NodeGlobal.MultT(Geometry.MultT(ControlPoint));
-		return ImportRootGlobalInverse.MultT(ScenePos);
-	}
-	}
-}
-
-FVector FFbxImporter::TransformNormalForImport(
-	const FVector& Normal,
-	const FbxAMatrix& Geometry,
-	const FbxAMatrix& NodeGlobal,
-	const FFbxImportOptions& Options)
-{
-	(void)Geometry;
-	(void)NodeGlobal;
-	(void)Options;
-	// TODO: Translation 제외.
-	// TODO: Non-uniform scale 대응 시 inverse-transpose 필요.
-	// TODO: ManualAxisFix 사용 시 normal/tangent에도 회전 보정 필요.
-	return Normal;
-}
-
-FVector4 FFbxImporter::TransformTangentForImport(
-	const FVector4& Tangent,
-	const FbxAMatrix& Geometry,
-	const FbxAMatrix& NodeGlobal,
-	const FFbxImportOptions& Options)
-{
-	(void)Geometry;
-	(void)NodeGlobal;
-	(void)Options;
-	// TODO: Translation 제외.
-	// TODO: Non-uniform scale 대응 시 inverse-transpose 필요.
-	// TODO: ManualAxisFix 사용 시 normal/tangent에도 회전 보정 필요.
-	return Tangent;
-}
-
-// 임시로 화면에 띄우기 위해 FBX 파일을 SkeletalMesh로 변환
+// FBX에서 읽은 정점/인덱스를 엔진 StaticMesh 리소스로 변환한다.
 UStaticMesh* FFbxImporter::BuildStaticMeshFromImportedData(const FString& FilePath, ID3D11Device* Device)
 {
 	if (!Device)
@@ -1003,33 +927,6 @@ UStaticMesh* FFbxImporter::BuildStaticMeshFromImportedData(const FString& FilePa
 	return StaticMesh;
 }
 
-FSkeletalMeshRawData FFbxImporter::BuildSkeletalRawDataFromImportedData()
-{
-	DeriveLocalBindTransformsFromGlobalBindTransforms();
-
-	FSkeletalMeshRawData RawData;
-	RawData.SourceVertices = vertices;
-	RawData.Indices = indices;
-	RawData.Sections.push_back(BuildDefaultSkeletalSection(static_cast<uint32>(indices.size())));
-
-	RawData.Bones.reserve(Bones.size());
-	for (const EngineBone& Bone : Bones)
-	{
-		FSkeletalBoneInfo BoneInfo;
-		BoneInfo.Name = Bone.Name;
-		BoneInfo.ParentIndex = Bone.ParentIndex;
-		BoneInfo.MeshBindGlobalTransform = Bone.MeshBindGlobalTransform;
-		BoneInfo.LocalBindTransform = Bone.LocalBindTransform;
-		BoneInfo.GlobalBindTransform = Bone.GlobalBindTransform;
-		BoneInfo.InverseBindTransform = Bone.InverseBindTransform;
-		// TODO: Animation pose sampling 이후 CurrentBoneTransform 갱신 예정
-		RawData.Bones.push_back(BoneInfo);
-	}
-
-	RawData.CacheBounds();
-	return RawData;
-}
-
 USkeletalMesh* FFbxImporter::BuildSkeletalMeshFromImportedData(const FString& FilePath, ID3D11Device* Device)
 {
 	if (!Device)
@@ -1049,6 +946,7 @@ USkeletalMesh* FFbxImporter::BuildSkeletalMeshFromImportedData(const FString& Fi
 	MeshAsset->SourceVertices = std::move(RawData.SourceVertices);
 	MeshAsset->Bones = std::move(RawData.Bones);
 	MeshAsset->Sections = std::move(RawData.Sections);
+	MeshAsset->VertexRanges = std::move(RawData.VertexRanges);
 	MeshAsset->BoundsCenter = RawData.BoundsCenter;
 	MeshAsset->BoundsExtent = RawData.BoundsExtent;
 	MeshAsset->bBoundsValid = RawData.bBoundsValid;
@@ -1068,4 +966,74 @@ USkeletalMesh* FFbxImporter::BuildSkeletalMeshFromImportedData(const FString& Fi
 	SkeletalMesh->InitResources(Device);
 
 	return SkeletalMesh;
+}
+FSkeletalMeshRawData FFbxImporter::BuildSkeletalRawDataFromImportedData()
+{
+	DeriveLocalBindTransformsFromGlobalBindTransforms();
+
+	FSkeletalMeshRawData RawData;
+	RawData.SourceVertices = vertices;
+	RawData.Indices = indices;
+	RawData.VertexRanges = vertexRanges;
+	RawData.Sections.push_back(BuildDefaultSkeletalSection(static_cast<uint32>(indices.size())));
+
+	RawData.Bones.reserve(Bones.size());
+	for (const EngineBone& Bone : Bones)
+	{
+		FSkeletalBoneInfo BoneInfo;
+		BoneInfo.Name = Bone.Name;
+		BoneInfo.ParentIndex = Bone.ParentIndex;
+		BoneInfo.ChildCount = Bone.ChildCount;
+		BoneInfo.MeshBindGlobalTransform = Bone.MeshBindGlobalTransform;
+		BoneInfo.LocalBindTransform = Bone.LocalBindTransform;
+		BoneInfo.GlobalBindTransform = Bone.GlobalBindTransform;
+		BoneInfo.InverseBindTransform = Bone.InverseBindTransform;
+		// TODO: Animation pose sampling 이후 CurrentBoneTransform 갱신 예정
+		RawData.Bones.push_back(BoneInfo);
+	}
+
+	RawData.CacheBounds();
+	return RawData;
+}
+
+
+int32 FFbxImporter::FindRigidFallbackBoneForMesh(FbxNode* MeshNode)
+{
+	if (!MeshNode || Bones.empty()) return -1;
+
+	// 1. Mesh Node의 Parent Chain 중에서 SkeletalMesh가 있으면 그 bone에 붙인다.
+	if (FbxNode* ParentSkeleton = FindParentSkeletonNode(MeshNode))
+	{
+		const int32 BoneIndex = FindOrAddBone(ParentSkeleton);
+		if (BoneIndex >= 0)
+		{
+			return BoneIndex;
+		}
+	}
+
+	// 2. 부모 Skeleton이 없으면 FBX Scene Global 위치끼리 비교해서 가장 가까운 bone을 찾는다.
+	FbxAMatrix MeshGlobal = MeshNode->EvaluateGlobalTransform();
+	FbxVector4 MeshPos = MeshGlobal.GetT();
+
+	int32 BestBoneIndex = -1;
+	double BestDistSq = DBL_MAX; // max_double
+
+	for (int32 BoneIndex = 0; BoneIndex < static_cast<int32>(Bones.size()); ++BoneIndex)
+	{
+		const EngineBone& Bone = Bones[BoneIndex];
+		const FVector BonePos = Bone.GlobalBindTransform.GetLocation();
+
+		const double Dx = static_cast<double>(MeshPos[0] - BonePos.X);
+		const double Dy = static_cast<double>(MeshPos[1] - BonePos.Y);
+		const double Dz = static_cast<double>(MeshPos[2] - BonePos.Z);
+
+		const double Distsq = Dx * Dx + Dy * Dy + Dz * Dz;
+		if (Distsq < BestDistSq)
+		{
+			BestDistSq = Distsq;
+			BestBoneIndex = BoneIndex;
+		}
+	}
+	return BestBoneIndex;
+
 }

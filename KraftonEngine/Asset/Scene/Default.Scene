@@ -1,47 +1,5 @@
 {
   "Actors" : [{
-      "ClassName" : "AStaticMeshActor",
-      "Name" : "AStaticMeshActor_1",
-      "NonSceneComponents" : [],
-      "Properties" : {
-        "Location" : [0.000000, 0.000000, -1.500000],
-        "Rotation" : [-0.000000, 0.000000, 0.000000],
-        "Scale" : [100.000000, 100.000000, 1.000000],
-        "Tags" : "",
-        "Visible" : true
-      },
-      "RootComponent" : {
-        "Children" : [],
-        "ClassName" : "UStaticMeshComponent",
-        "Properties" : {
-          "Cast Shadow" : true,
-          "Center Of Mass Offset" : [0.000000, 0.000000, 0.000000],
-          "Collision Enabled" : 0,
-          "Collision Responses" : {
-            "Pawn" : 2,
-            "Projectile" : 2,
-            "Trigger" : 2,
-            "WorldDynamic" : 2,
-            "WorldStatic" : 2
-          },
-          "Element 0" : {
-            "Path" : "Asset/Materials/Auto/Material.mat"
-          },
-          "Generate Overlap Events" : false,
-          "Location" : [0.000000, 0.000000, -1.500000],
-          "Mass (kg)" : 1.000000,
-          "Object Type" : 0,
-          "Rotation" : [0.000000, 0.000000, 0.000000],
-          "Scale" : [100.000000, 100.000000, 1.000000],
-          "Simulate Physics" : false,
-          "Static Mesh" : "Data/GouraudCube/GouraudCube.obj",
-          "Two Sided Shadow" : false,
-          "Visible" : true,
-          "bEditorOnly" : false,
-          "bTickEnable" : true
-        }
-      }
-    }, {
       "ClassName" : "ASkeletalMeshActor",
       "Name" : "ASkeletalMeshActor_0",
       "NonSceneComponents" : [],
@@ -66,17 +24,14 @@
             "WorldDynamic" : 2,
             "WorldStatic" : 2
           },
-          "Element 0" : {
-            "Path" : "None"
-          },
           "Generate Overlap Events" : false,
           "Location" : [-6.046734, -1.067926, 22.327597],
           "Mass (kg)" : 1.000000,
           "Object Type" : 0,
-          "Rotation" : [-0.000000, 0.000000, 0.000000],
+          "Rotation" : [0.000000, 0.000000, 0.000000],
           "Scale" : [1.000000, 1.000000, 1.000000],
           "Simulate Physics" : false,
-          "Static Mesh" : "FBX/lowpolyboy/SimpleHuman.fbx",
+          "Static Mesh" : "",
           "Two Sided Shadow" : false,
           "Visible" : true,
           "bEditorOnly" : false,

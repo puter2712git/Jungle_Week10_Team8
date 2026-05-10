@@ -503,6 +503,14 @@ FVector FMatrix::GetLocation() const
 	return FVector(M[3][0], M[3][1], M[3][2]);
 }
 
+void FMatrix::SetLocation(const FVector& InLocation)
+{
+	M[3][0] = InLocation.X;
+	M[3][1] = InLocation.Y;
+	M[3][2] = InLocation.Z;
+
+}
+
 FVector FMatrix::GetScale() const
 {
 	float ScaleX = std::sqrt(M[0][0] * M[0][0] + M[0][1] * M[0][1] + M[0][2] * M[0][2]);

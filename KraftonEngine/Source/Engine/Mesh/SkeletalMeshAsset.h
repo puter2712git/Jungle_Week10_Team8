@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "Core/CoreTypes.h"
 #include "Math/Matrix.h"
@@ -37,9 +37,11 @@ struct FSkeletalBoneInfo
 {
 	FString Name;
 	int32 ParentIndex = -1;
+	int32 ChildCount = -1;
 
-	// Bind matrices are stored in the same space as SourceVertices, currently ImportRootLocal.
-	// TODO: Animation pose sampling 이후 CurrentBoneTransform 갱신 예정
+	// Bone Bind 행렬은 FBX Scene Global 기준으로 저장한다.
+	// 정점은 Mesh Node local ControlPoint로 남겨두고,
+	// Skinning 단계에서 Mesh Range의 행렬과 Bone 행렬을 같은 Scene Global 기준에서 만난다.
 	FMatrix MeshBindGlobalTransform = FMatrix::Identity;
 	FMatrix LocalBindTransform = FMatrix::Identity;
 	FMatrix GlobalBindTransform = FMatrix::Identity;
@@ -49,10 +51,46 @@ struct FSkeletalBoneInfo
 	{
 		Ar << Bone.Name;
 		Ar << Bone.ParentIndex;
+		Ar << Bone.ChildCount;
 		SerializeSkeletalMatrix(Ar, Bone.MeshBindGlobalTransform);
 		SerializeSkeletalMatrix(Ar, Bone.LocalBindTransform);
 		SerializeSkeletalMatrix(Ar, Bone.GlobalBindTransform);
 		SerializeSkeletalMatrix(Ar, Bone.InverseBindTransform);
+		return Ar;
+	}
+};
+
+// ============================================================
+// SkeletalMesh Vertex Range
+// ============================================================
+// 하나의 FBX Mesh Node에서 나온 VertexBuffer/IndexBuffer 범위를 기록한다.
+// ControlPoint 좌표는 정점에 원본 그대로 보존하고,
+// Geometry Transform과 Mesh Node Global Bind Transform은 이 범위에 따로 저장한다.
+// 여러 Mesh Node를 하나의 SkeletalMesh로 합쳐도 각 정점 범위가 사용할 행렬을 잃지 않는다.
+struct FSkeletalMeshVertexRange
+{
+	uint32 BaseVertex = 0;
+	uint32 VertexCount = 0;
+
+	uint32 BaseIndex = 0;
+	uint32 IndexCount = 0;
+
+	FString MeshNodeName;
+
+	FMatrix GeometryTransform = FMatrix::Identity;
+	FMatrix MeshNodeGlobalBindTransform = FMatrix::Identity;
+	FMatrix MeshNodeGlobalBindInverseTransform = FMatrix::Identity;
+
+	friend FArchive& operator<<(FArchive& Ar, FSkeletalMeshVertexRange& Range)
+	{
+		Ar << Range.BaseVertex;
+		Ar << Range.VertexCount;
+		Ar << Range.BaseIndex;
+		Ar << Range.IndexCount;
+		Ar << Range.MeshNodeName;
+		SerializeSkeletalMatrix(Ar, Range.GeometryTransform);
+		SerializeSkeletalMatrix(Ar, Range.MeshNodeGlobalBindTransform);
+		SerializeSkeletalMatrix(Ar, Range.MeshNodeGlobalBindInverseTransform);
 		return Ar;
 	}
 };
@@ -79,6 +117,7 @@ struct FSkeletalMeshLODData
 	TArray<FSkeletalMeshVertex> SourceVertices;
 	TArray<int32> Indices;
 	TArray<FSkeletalMeshSection> Sections;
+	TArray<FSkeletalMeshVertexRange> VertexRanges;
 };
 
 struct FSkeletalMeshRawData
@@ -87,6 +126,7 @@ struct FSkeletalMeshRawData
 	TArray<int32> Indices;
 	TArray<FSkeletalBoneInfo> Bones;
 	TArray<FSkeletalMeshSection> Sections;
+	TArray<FSkeletalMeshVertexRange> VertexRanges;
 
 	FVector BoundsCenter = FVector(0, 0, 0);
 	FVector BoundsExtent = FVector(0, 0, 0);
@@ -97,16 +137,34 @@ struct FSkeletalMeshRawData
 		bBoundsValid = false;
 		if (SourceVertices.empty()) return;
 
-		FVector LocalMin = SourceVertices[0].Position;
-		FVector LocalMax = SourceVertices[0].Position;
-		for (const FSkeletalMeshVertex& V : SourceVertices)
+		auto GetBindPosePosition = [this](uint32 VertexIndex) -> FVector
 		{
-			LocalMin.X = (std::min)(LocalMin.X, V.Position.X);
-			LocalMin.Y = (std::min)(LocalMin.Y, V.Position.Y);
-			LocalMin.Z = (std::min)(LocalMin.Z, V.Position.Z);
-			LocalMax.X = (std::max)(LocalMax.X, V.Position.X);
-			LocalMax.Y = (std::max)(LocalMax.Y, V.Position.Y);
-			LocalMax.Z = (std::max)(LocalMax.Z, V.Position.Z);
+			const FVector MeshLocalPosition = SourceVertices[VertexIndex].Position;
+
+			for (const FSkeletalMeshVertexRange& Range : VertexRanges)
+			{
+				if (VertexIndex >= Range.BaseVertex && VertexIndex < Range.BaseVertex + Range.VertexCount)
+				{
+					// Range 행렬은 행벡터 기준 논리 순서로 적용한다.
+					const FVector GeometryLocalPosition = Range.GeometryTransform.TransformPositionWithW(MeshLocalPosition);
+					return Range.MeshNodeGlobalBindTransform.TransformPositionWithW(GeometryLocalPosition);
+				}
+			}
+
+			return MeshLocalPosition;
+		};
+
+		FVector LocalMin = GetBindPosePosition(0);
+		FVector LocalMax = LocalMin;
+		for (uint32 VertexIndex = 0; VertexIndex < static_cast<uint32>(SourceVertices.size()); ++VertexIndex)
+		{
+			const FVector BindPosePosition = GetBindPosePosition(VertexIndex);
+			LocalMin.X = (std::min)(LocalMin.X, BindPosePosition.X);
+			LocalMin.Y = (std::min)(LocalMin.Y, BindPosePosition.Y);
+			LocalMin.Z = (std::min)(LocalMin.Z, BindPosePosition.Z);
+			LocalMax.X = (std::max)(LocalMax.X, BindPosePosition.X);
+			LocalMax.Y = (std::max)(LocalMax.Y, BindPosePosition.Y);
+			LocalMax.Z = (std::max)(LocalMax.Z, BindPosePosition.Z);
 		}
 
 		BoundsCenter = (LocalMin + LocalMax) * 0.5f;
@@ -123,6 +181,7 @@ struct FSkeletalMeshAsset
 	TArray<uint32> Indices;
 	TArray<FSkeletalBoneInfo> Bones;
 	TArray<FSkeletalMeshSection> Sections;
+	TArray<FSkeletalMeshVertexRange> VertexRanges;
 
 	FVector BoundsCenter = FVector(0, 0, 0);
 	FVector BoundsExtent = FVector(0, 0, 0);
@@ -133,16 +192,34 @@ struct FSkeletalMeshAsset
 		bBoundsValid = false;
 		if (SourceVertices.empty()) return;
 
-		FVector LocalMin = SourceVertices[0].Position;
-		FVector LocalMax = SourceVertices[0].Position;
-		for (const FSkeletalMeshVertex& V : SourceVertices)
+		auto GetBindPosePosition = [this](uint32 VertexIndex) -> FVector
 		{
-			LocalMin.X = (std::min)(LocalMin.X, V.Position.X);
-			LocalMin.Y = (std::min)(LocalMin.Y, V.Position.Y);
-			LocalMin.Z = (std::min)(LocalMin.Z, V.Position.Z);
-			LocalMax.X = (std::max)(LocalMax.X, V.Position.X);
-			LocalMax.Y = (std::max)(LocalMax.Y, V.Position.Y);
-			LocalMax.Z = (std::max)(LocalMax.Z, V.Position.Z);
+			const FVector MeshLocalPosition = SourceVertices[VertexIndex].Position;
+
+			for (const FSkeletalMeshVertexRange& Range : VertexRanges)
+			{
+				if (VertexIndex >= Range.BaseVertex && VertexIndex < Range.BaseVertex + Range.VertexCount)
+				{
+					// Range 행렬은 행벡터 기준 논리 순서로 적용한다.
+					const FVector GeometryLocalPosition = Range.GeometryTransform.TransformPositionWithW(MeshLocalPosition);
+					return Range.MeshNodeGlobalBindTransform.TransformPositionWithW(GeometryLocalPosition);
+				}
+			}
+
+			return MeshLocalPosition;
+		};
+
+		FVector LocalMin = GetBindPosePosition(0);
+		FVector LocalMax = LocalMin;
+		for (uint32 VertexIndex = 0; VertexIndex < static_cast<uint32>(SourceVertices.size()); ++VertexIndex)
+		{
+			const FVector BindPosePosition = GetBindPosePosition(VertexIndex);
+			LocalMin.X = (std::min)(LocalMin.X, BindPosePosition.X);
+			LocalMin.Y = (std::min)(LocalMin.Y, BindPosePosition.Y);
+			LocalMin.Z = (std::min)(LocalMin.Z, BindPosePosition.Z);
+			LocalMax.X = (std::max)(LocalMax.X, BindPosePosition.X);
+			LocalMax.Y = (std::max)(LocalMax.Y, BindPosePosition.Y);
+			LocalMax.Z = (std::max)(LocalMax.Z, BindPosePosition.Z);
 		}
 
 		BoundsCenter = (LocalMin + LocalMax) * 0.5f;
@@ -157,6 +234,7 @@ struct FSkeletalMeshAsset
 		Ar << Indices;
 		Ar << Bones;
 		Ar << Sections;
+		Ar << VertexRanges;
 		Ar << BoundsCenter;
 		Ar << BoundsExtent;
 		Ar << bBoundsValid;

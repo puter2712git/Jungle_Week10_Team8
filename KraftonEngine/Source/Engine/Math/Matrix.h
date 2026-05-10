@@ -107,6 +107,7 @@ struct FMatrix {
 
 	FVector GetEuler() const;
 	FVector GetLocation() const;
+	void SetLocation(const FVector& InLocation);
 	FVector GetScale() const;
 
 	// FQuat/FRotator 변환 (구현은 Quat.cpp/Rotator.cpp)

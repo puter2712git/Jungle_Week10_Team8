@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include "Math/Matrix.h"
 
 IMPLEMENT_CLASS(USkeletalMeshComponent, USkinnedMeshComponent)
 
@@ -330,16 +331,25 @@ void USkeletalMeshComponent::UpdateSkinningMatrices()
 
 	SkinningMatrices.resize(BoneCount);
 
-	// TODO(PRID):
-	// 여기서 InverseBindTransform과 CurrentBoneGlobalTransform을 조합해서
-	// SkinningMatrix를 직접 계산할 예정.
-	// 이번 작업에서는 알고리즘을 구현하지 않고 안전한 기본값만 둔다.
-
-	for (int32 BoneIndex = 0; BoneIndex < BoneCount; ++BoneIndex)
+	for (uint32 BoneIndex = 0; BoneIndex < BoneCount; ++BoneIndex)
 	{
 		const FSkeletalBoneInfo& Bone = Asset->Bones[BoneIndex];
 
+		// 논리 공식은 행벡터 기준이다.
+		// SceneBindPosition * Bone.InverseBindTransform * CurrentBoneGlobalTransform
 		SkinningMatrices[BoneIndex] = Bone.InverseBindTransform * CurrentBoneGlobalTransforms[BoneIndex];
+
+		if (BoneIndex < 4) //Unreal 기준으로 8이라 이지랄한듯 ;;
+		{
+			const FMatrix BindCheckMatrix = Bone.InverseBindTransform * Bone.GlobalBindTransform;
+			const FVector BindCheckT = BindCheckMatrix.GetLocation();
+			const bool bAlmostIdentity = BindCheckMatrix.IsIdentity();
+			UE_LOG("[Skin BindCheck] Bone[%d] %s BindCheckT=(%.6f %.6f %.6f) Identity=%s",
+				BoneIndex,
+				Bone.Name.c_str(),
+				BindCheckT.X, BindCheckT.Y, BindCheckT.Z,
+				bAlmostIdentity ? "true" : "false");
+		}
 	}
 }
 
@@ -355,72 +365,110 @@ void USkeletalMeshComponent::UpdateCPUSkinning()
 
 	const FSkeletalMeshAsset* Asset = SkeletalMesh->GetSkeletalMeshAsset();
 	SkinnedVertices.clear();
-	SkinnedVertices.reserve(Asset->SourceVertices.size());
+	SkinnedVertices.resize(Asset->SourceVertices.size());
 
-	// TODO(PRID):
-	// 여기서 SourceVertices를 읽고,
-	// BoneIndices / BoneWeights / SkinningMatrices를 이용해
-	// SkinnedVertices를 갱신할 예정.
-	//
-	// 이번 작업에서는 스키닝하지 않고 SourceVertices를 렌더 정점으로 단순 복사만 한다.
-	for (const FSkeletalMeshVertex& SourceVertex : Asset->SourceVertices)
+	// ============================================================
+	// CPU Skinning: Mesh Range 단위 처리
+	// ============================================================
+	// SourceVertex.Position은 FBX ControlPoint 원본 좌표다.
+	// 따라서 VertexBuffer 전체에 같은 보정 행렬을 한 번에 적용하지 않는다.
+	// 각 VertexRange가 가진 GeometryTransform과 MeshNodeGlobalBindTransform을
+	// 먼저 적용한 뒤 Bone의 Global Bind 기준 SkinningMatrix를 곱한다.
+	TArray<FSkeletalMeshVertexRange> RuntimeRanges = Asset->VertexRanges;
+	if (RuntimeRanges.empty() && !Asset->SourceVertices.empty())
 	{
-		FVector SkinnedPosition = FVector::ZeroVector;
-		FVector SkinnedNormal = FVector::ZeroVector;
+		FSkeletalMeshVertexRange FullRange;
+		FullRange.BaseVertex = 0;
+		FullRange.VertexCount = static_cast<uint32>(Asset->SourceVertices.size());
+		FullRange.BaseIndex = 0;
+		FullRange.IndexCount = static_cast<uint32>(Asset->Indices.size());
+		FullRange.MeshNodeName = "Unknown";
+		RuntimeRanges.push_back(FullRange);
+	}
 
-		// SkinnedVertices.push_back(MakeSkinnedRenderVertex(SourceVertex));
+	for (const FSkeletalMeshVertexRange& Range : RuntimeRanges)
+	{
+		const uint32 RangeEnd = (std::min)(
+			Range.BaseVertex + Range.VertexCount,
+			static_cast<uint32>(Asset->SourceVertices.size()));
 
-		float TotalWeight = 0.0f;
-
-		for (int32 idx = 0; idx < 4; ++idx)
+		for (uint32 VertexIndex = Range.BaseVertex; VertexIndex < RangeEnd; ++VertexIndex)
 		{
-			const uint32 BoneIndex = SourceVertex.BoneIndices[idx];
-			const float Weight = SourceVertex.BoneWeights[idx];
+			const FSkeletalMeshVertex& SourceVertex = Asset->SourceVertices[VertexIndex];
 
-			if (Weight <= 0.0f)
+			// 논리 공식은 행벡터 기준이다.
+			// ControlPoint -> GeometryTransform -> MeshNodeGlobalBindTransform -> BoneInverseBindTransform -> BoneCurrentGlobalTransform
+			const FVector MeshLocalPosition = SourceVertex.Position;
+			const FVector GeometryLocalPosition = Range.GeometryTransform.TransformPositionWithW(MeshLocalPosition);
+			const FVector SceneBindPosition = Range.MeshNodeGlobalBindTransform.TransformPositionWithW(GeometryLocalPosition);
+
+			const FVector GeometryLocalNormal = Range.GeometryTransform.TransformVector(SourceVertex.Normal);
+			const FVector SceneBindNormal = Range.MeshNodeGlobalBindTransform.TransformVector(GeometryLocalNormal);
+			const FVector SourceTangent(SourceVertex.Tangent.X, SourceVertex.Tangent.Y, SourceVertex.Tangent.Z);
+			const FVector GeometryLocalTangent = Range.GeometryTransform.TransformVector(SourceTangent);
+			const FVector SceneBindTangent = Range.MeshNodeGlobalBindTransform.TransformVector(GeometryLocalTangent);
+
+			FVector SkinnedPosition = FVector::ZeroVector;
+			FVector SkinnedNormal = FVector::ZeroVector;
+			FVector SkinnedTangent = FVector::ZeroVector;
+
+			float TotalWeight = 0.0f;
+
+			for (int32 InfluenceIndex = 0; InfluenceIndex < 4; ++InfluenceIndex)
 			{
-				continue;
+				const uint32 BoneIndex = SourceVertex.BoneIndices[InfluenceIndex];
+				const float Weight = SourceVertex.BoneWeights[InfluenceIndex];
+
+				if (Weight <= 0.0f)
+				{
+					continue;
+				}
+				if (BoneIndex >= SkinningMatrices.size())
+				{
+					continue;
+				}
+
+				const FMatrix& SkinningMatrix = SkinningMatrices[BoneIndex];
+
+				// Position은 이동 성분이 필요하므로 동차좌표계로 변환한다.
+				const FVector WeightedPosition = SkinningMatrix.TransformPositionWithW(SceneBindPosition);
+
+				// Normal은 방향 벡터라서 translation을 제외한다.
+				const FVector WeightedNormal = SkinningMatrix.TransformVector(SceneBindNormal);
+				const FVector WeightedTangent = SkinningMatrix.TransformVector(SceneBindTangent);
+
+				SkinnedPosition += WeightedPosition * Weight;
+				SkinnedNormal += WeightedNormal * Weight;
+				SkinnedTangent += WeightedTangent * Weight;
+				TotalWeight += Weight;
 			}
-			if (BoneIndex >= SkinningMatrices.size())
+
+			if (TotalWeight <= 1e-4f)
 			{
-				continue;
+				SkinnedPosition = SceneBindPosition;
+				SkinnedNormal = SceneBindNormal;
+				SkinnedTangent = SceneBindTangent;
+			}
+			else
+			{
+				const float InvTotalWeight = 1.0f / TotalWeight;
+				SkinnedPosition *= InvTotalWeight;
+				SkinnedNormal *= InvTotalWeight;
+				SkinnedTangent *= InvTotalWeight;
 			}
 
-			const FMatrix& SkinningMatrix = SkinningMatrices[BoneIndex];
+			SkinnedNormal.Normalize();
+			SkinnedTangent.Normalize();
 
-			// Position은 이동성분 필요하므로 동차좌표계 사용
-			const FVector TransformPosition = SkinningMatrix.TransformPositionWithW(SourceVertex.Position);
+			FVertexPNCTT RenderVertex;
+			RenderVertex.Position = SkinnedPosition;
+			RenderVertex.Normal = SkinnedNormal;
+			RenderVertex.Color = FVector4(1.f, 1.f, 1.f, 1.f);
+			RenderVertex.UV = SourceVertex.UV;
+			RenderVertex.Tangent = FVector4(SkinnedTangent.X, SkinnedTangent.Y, SkinnedTangent.Z, SourceVertex.Tangent.W);
 
-			// Normal은 벡터라서 wㅇ필요없음.
-			const FVector TransformNormal = SkinningMatrix.TransformVector(SourceVertex.Normal);
-			SkinnedPosition += TransformPosition * Weight;
-			SkinnedNormal += TransformNormal * Weight;
-
-			TotalWeight += Weight;
+			SkinnedVertices[VertexIndex] = RenderVertex;
 		}
-
-		if (TotalWeight <= 1e-4)
-		{
-			SkinnedPosition = SourceVertex.Position;
-			SkinnedNormal = SourceVertex.Normal;
-		}
-		else
-		{
-			const float InvTotalWeight = 1.f / TotalWeight;
-			SkinnedPosition *= InvTotalWeight;
-			SkinnedNormal *= InvTotalWeight;
-		}
-
-		SkinnedNormal.Normalize();
-
-		FVertexPNCTT RenderVertex;
-		RenderVertex.Position = SkinnedPosition;
-		RenderVertex.Normal = SkinnedNormal;
-		RenderVertex.Color = FVector4(1.f, 1.f, 1.f, 1.f);
-		RenderVertex.UV = SourceVertex.UV;
-		RenderVertex.Tangent = SourceVertex.Tangent;
-
-		SkinnedVertices.push_back(RenderVertex);
 	}
 	
 
@@ -484,6 +532,29 @@ bool USkeletalMeshComponent::UploadSkinnedVerticesToGPU()
 	return bUpdated;
 }
 
+void USkeletalMeshComponent::DebugValidateBindPose() const
+{
+	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset())
+	{
+		return;
+	}
+
+	const FSkeletalMeshAsset* Asset = SkeletalMesh->GetSkeletalMeshAsset();
+	const int32 BoneLogCount = (std::min)(static_cast<int32>(Asset->Bones.size()), 16);
+
+	for (int32 BoneIndex = 0; BoneIndex < BoneLogCount; ++BoneIndex)
+	{
+		const FSkeletalBoneInfo& Bone = Asset->Bones[BoneIndex];
+		const FMatrix BindCheckMatrix = Bone.InverseBindTransform * Bone.GlobalBindTransform;
+		const FVector BindCheckT = BindCheckMatrix.GetLocation();
+		UE_LOG("[Skin BindCheck] Bone[%d] %s BindCheckT=(%.6f %.6f %.6f) Identity=%s",
+			BoneIndex,
+			Bone.Name.c_str(),
+			BindCheckT.X, BindCheckT.Y, BindCheckT.Z,
+			BindCheckMatrix.IsIdentity() ? "true" : "false");
+	}
+}
+
 void USkeletalMeshComponent::MarkPoseDirty()
 {
 	bPoseDirty = true;
@@ -533,16 +604,34 @@ void USkeletalMeshComponent::LogSkeletalMeshDebugInfo(bool bDynamicBufferCreated
 		static_cast<int32>(Asset->Indices.size()),
 		static_cast<int32>(Asset->Bones.size()));
 
+	const int32 RangeLogCount = (std::min)(static_cast<int32>(Asset->VertexRanges.size()), 16);
+	for (int32 RangeIndex = 0; RangeIndex < RangeLogCount; ++RangeIndex)
+	{
+		const FSkeletalMeshVertexRange& Range = Asset->VertexRanges[RangeIndex];
+		const FVector GeometryT = Range.GeometryTransform.GetLocation();
+		const FVector MeshNodeT = Range.MeshNodeGlobalBindTransform.GetLocation();
+		UE_LOG("[FBX MeshRange] Range[%d] MeshNode=%s BaseVertex=%u VertexCount=%u BaseIndex=%u IndexCount=%u GeometryT=(%.3f %.3f %.3f) MeshNodeBindT=(%.3f %.3f %.3f)",
+			RangeIndex,
+			Range.MeshNodeName.c_str(),
+			Range.BaseVertex,
+			Range.VertexCount,
+			Range.BaseIndex,
+			Range.IndexCount,
+			GeometryT.X, GeometryT.Y, GeometryT.Z,
+			MeshNodeT.X, MeshNodeT.Y, MeshNodeT.Z);
+	}
+
 	const int32 BoneLogCount = (std::min)(static_cast<int32>(Asset->Bones.size()), 16);
 	for (int32 BoneIndex = 0; BoneIndex < BoneLogCount; ++BoneIndex)
 	{
 		const FSkeletalBoneInfo& Bone = Asset->Bones[BoneIndex];
 		const FVector GlobalBindT = Bone.GlobalBindTransform.GetLocation();
 		const FVector InverseBindT = Bone.InverseBindTransform.GetLocation();
-		UE_LOG("[SkeletalMesh] Bone[%d] Name=%s ParentIndex=%d GlobalBindT=(%.3f %.3f %.3f) InverseBindT=(%.3f %.3f %.3f)",
+		UE_LOG("[FBX BoneBind] Bone[%d] Name=%s ParentIndex=%d ChildCount=%d GlobalBindT=(%.3f %.3f %.3f) InverseBindT=(%.3f %.3f %.3f)",
 			BoneIndex,
 			Bone.Name.c_str(),
 			Bone.ParentIndex,
+			Bone.ChildCount,
 			GlobalBindT.X, GlobalBindT.Y, GlobalBindT.Z,
 			InverseBindT.X, InverseBindT.Y, InverseBindT.Z);
 	}
@@ -585,34 +674,8 @@ void USkeletalMeshComponent::ApplyDebugBoneAnimation(float DeltaTime)
 
 	if (DebugAnimatedBoneIndex < 0)
 	{
-		// 우선 팔 쪽 이름을 대충 찾아본다.
 		DebugAnimatedBoneIndex = FindBoneIndexByNameContains("spine");
-
-		//if (DebugAnimatedBoneIndex < 0)
-		//{
-		//	DebugAnimatedBoneIndex = FindBoneIndexByNameContains("arm");
-		//}
-		//if (DebugAnimatedBoneIndex < 0)
-		//{
-		//	DebugAnimatedBoneIndex = FindBoneIndexByNameContains("ForeArm");
-		//}
-		//if (DebugAnimatedBoneIndex < 0)
-		//{
-		//	DebugAnimatedBoneIndex = FindBoneIndexByNameContains("forearm");
-		//}
-
-		//// 못 찾으면 root 말고 1번 bone으로 임시 테스트
-		//if (DebugAnimatedBoneIndex < 0 && Asset->Bones.size() > 1)
-		//{
-		//	DebugAnimatedBoneIndex = 1;
-		//}
-
-		//if (DebugAnimatedBoneIndex >= 0)
-		//{
-		//	UE_LOG("[CPU Skinning Debug] AnimatedBoneIndex=%d Name=%s",
-		//		DebugAnimatedBoneIndex,
-		//		Asset->Bones[DebugAnimatedBoneIndex].Name.c_str());
-		//}
+		// DebugAnimatedBoneIndex = FindBoneIndexByNameContains("Base");
 	}
 
 	if (DebugAnimatedBoneIndex < 0 ||
@@ -621,14 +684,31 @@ void USkeletalMeshComponent::ApplyDebugBoneAnimation(float DeltaTime)
 		return;
 	}
 
-	const float AngleRad = sinf(DebugSkinningTime);
+	const FMatrix BindLocal = Asset->Bones[DebugAnimatedBoneIndex].LocalBindTransform;
 
-	// 처음에는 Z축 회전으로 테스트.
-	// 이상하면 X/Y로 바꿔가며 확인.
+	// 행벡터 기준: translation은 4번째 행에 있음.
+	const FVector BindTranslation = BindLocal.GetLocation();
+
+	// Local bind에서 translation만 제거한다.
+	// 즉, bind pose의 scale/rotation만 남긴다.
+	FMatrix BindLocalNoTranslation = BindLocal;
+	BindLocalNoTranslation.SetLocation(FVector::ZeroVector);
+
+	// -45도 ~ +45도
+	constexpr float MaxAngleRad = 45.f * FMath::DegToRad;
+	const float AngleRad = sinf(DebugSkinningTime) * MaxAngleRad;
+
+	// 테스트 축. spine이면 Z보다 X/Y가 더 자연스러울 수 있음.
 	const FMatrix DeltaRotation = FMatrix::MakeRotationZ(AngleRad);
 
-	CurrentBoneLocalTransforms[DebugAnimatedBoneIndex] =
-		Asset->Bones[DebugAnimatedBoneIndex].LocalBindTransform * DeltaRotation;
+	// 행벡터 기준:
+	// v * DebugRotation * BindSR * BindTranslation
+	const FMatrix AnimatedLocal =
+		BindLocalNoTranslation *
+		DeltaRotation *
+		FMatrix::MakeTranslationMatrix(BindTranslation);
+
+	CurrentBoneLocalTransforms[DebugAnimatedBoneIndex] = AnimatedLocal;
 
 	bPoseDirty = true;
 }

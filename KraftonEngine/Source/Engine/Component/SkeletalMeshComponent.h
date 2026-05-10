@@ -41,6 +41,7 @@ public:
 	const TArray<FMatrix>& GetCurrentBoneGlobalTransforms() const { return CurrentBoneGlobalTransforms; }
 	const TArray<FMatrix>& GetSkinningMatrices() const { return SkinningMatrices; }
 
+	void DebugValidateBindPose() const;
 	void UpdatePose();
 	void UpdateSkinningMatrices();
 	void UpdateCPUSkinning();
