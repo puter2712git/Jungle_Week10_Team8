@@ -353,6 +353,7 @@ USkeletalMesh* FFbxImporter::ImportAsSkeletalMesh(const FString& FilePath, ID3D1
 	FFbxImportOptions Options;
 	Options.MeshType = EFbxImportMeshType::SkeletalMesh;
 	Options.bImportBones = true;
+	Options.AxisMode = EFbxAxisConversionMode::FbxSdkConvertScene;
 
 	if (!Import(FilePath, Options))
 	{
@@ -470,13 +471,15 @@ void FFbxImporter::ProcessPolygon(FbxNode* Node, const FFbxImportOptions& Option
 	// mesh polygon 순회
 	for (int32 pIdx = 0; pIdx < Mesh->GetPolygonCount(); ++pIdx)
 	{
+		// FbxGeometryElementMaterial* Material = Mesh->GetElementMaterial(pIdx); -> 나중에 사용
+
 		for (int32 corner = 0; corner < Mesh->GetPolygonSize(pIdx); ++corner)
 		{
 			// Polygon corner가 참조하는 FBX ControlPoint 인덱스다.
 			const int cpIndex = Mesh->GetPolygonVertex(pIdx, corner);
 			FSkeletalMeshVertex v = {};
 
-			// 1. 원본 ControlPoint 좌표를 가져온다. Geometry는 아직 곱하지 않는다.
+			// 1. 원본 ControlPoint 좌표를 가져온다.
 			FbxVector4 ControlPoint = Mesh->GetControlPoints()[cpIndex];
 
 			if (Options.MeshType == EFbxImportMeshType::SkeletalMesh)
@@ -499,6 +502,7 @@ void FFbxImporter::ProcessPolygon(FbxNode* Node, const FFbxImportOptions& Option
 			v.UV = GetUV(Mesh, pIdx, corner, uvSetName);
 			v.Tangent = FVector4(0.f, 0.f, 0.f, 0.f);
 			// v.MaterialIndex 나중에 연결
+			// v.MaterialIndex = 
 
 			// 2. 이 정점이 어떤 Bone의 영향을 받는지 저장한다.
 			TArray<BoneInfluence> EmptyInfluences;
@@ -819,9 +823,9 @@ void FFbxImporter::ApplySceneUnitConversion(FbxScene* Scene, const FFbxImportOpt
 	}
 
 	FbxSystemUnit SceneUnit = Scene->GetGlobalSettings().GetSystemUnit();
-	if (SceneUnit != FbxSystemUnit::cm)
+	if (SceneUnit != FbxSystemUnit::mm)
 	{
-		FbxSystemUnit::cm.ConvertScene(Scene);
+		FbxSystemUnit::mm.ConvertScene(Scene);
 	}
 }
 

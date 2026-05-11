@@ -339,7 +339,7 @@ void USkeletalMeshComponent::UpdateSkinningMatrices()
 		// SceneBindPosition * Bone.InverseBindTransform * CurrentBoneGlobalTransform
 		SkinningMatrices[BoneIndex] = Bone.InverseBindTransform * CurrentBoneGlobalTransforms[BoneIndex];
 
-		if (BoneIndex < 4) //Unreal 기준으로 8이라 이지랄한듯 ;;
+		if (BoneIndex < 4) //Unreal은 8임.
 		{
 			const FMatrix BindCheckMatrix = Bone.InverseBindTransform * Bone.GlobalBindTransform;
 			const FVector BindCheckT = BindCheckMatrix.GetLocation();

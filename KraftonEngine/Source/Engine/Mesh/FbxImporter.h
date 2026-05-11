@@ -82,16 +82,19 @@ enum class EFbxAxisConversionMode
 	ManualAxisFix
 };
 
-// Import 설정 옵션
+// =================================
+// FBX Import 설정 옵션
+// - Triangulate, Unit, Axis Convert, Material Build 여부, Bone 여부(static, skeletal 구분), Log 출력 flag 등 관리.
+// =================================
 struct FFbxImportOptions
 {
 	bool bTriangulate = true;
 	bool bConvertUnit = true;
-	bool bConvertAxis = true;
+	bool bConvertAxis = false;
 	bool bBuildMaterials = false;
 	bool bImportBones = true;
-	bool bLogNodeTransforms = false;
-	bool bLogMeshSummary = false;
+	bool bLogNodeTransforms = true;
+	bool bLogMeshSummary = true;
 
 	EFbxImportMeshType MeshType = EFbxImportMeshType::StaticMesh;
 	EFbxAxisConversionMode AxisMode = EFbxAxisConversionMode::None;
@@ -107,7 +110,9 @@ public:
 	bool Import(const FString& FilePath);
 	bool Import(const FString& FilePath, const FFbxImportOptions& Options);
 
+	// FBX 파일을 Static Mesh로 Import하는 함수
 	UStaticMesh* ImportAsStaticMesh(const FString& FilePath, ID3D11Device* Device);
+	// FBX 파일을 Skeletal Mesh로 Import하는 함수
 	USkeletalMesh* ImportAsSkeletalMesh(const FString& FilePath, ID3D11Device* Device);
 
 	void ProcessNode(FbxNode* Node, int32 cnt, const FFbxImportOptions& Options);

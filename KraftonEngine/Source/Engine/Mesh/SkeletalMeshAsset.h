@@ -24,6 +24,7 @@ struct FSkeletalMeshVertex
 	float		BoneWeights[4] = {};
 };
 
+// 행렬 Duplicate Helper 함수
 inline FArchive& SerializeSkeletalMatrix(FArchive& Ar, FMatrix& Matrix)
 {
 	for (int32 i = 0; i < 16; ++i)
@@ -132,6 +133,7 @@ struct FSkeletalMeshRawData
 	FVector BoundsExtent = FVector(0, 0, 0);
 	bool bBoundsValid = false;
 
+	// AABB 검사 함수
 	void CacheBounds()
 	{
 		bBoundsValid = false;
